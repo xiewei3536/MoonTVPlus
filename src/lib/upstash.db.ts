@@ -292,6 +292,12 @@ export class UpstashRedisStorage implements IStorage {
       score: createdAt,
       member: userName,
     }));
+
+    // 如果创建的是站长用户，清除站长存在状态缓存
+    if (userName === process.env.USERNAME) {
+      const { ownerExistenceCache } = await import('./user-cache');
+      ownerExistenceCache.delete(userName);
+    }
   }
 
   // 验证用户密码（新版本）
@@ -519,29 +525,70 @@ export class UpstashRedisStorage implements IStorage {
     total: number;
   }> {
     // 获取总数
-    const total = await withRetry(() => this.client.zcard(this.userListKey()));
+    let total = await withRetry(() => this.client.zcard(this.userListKey()));
+
+    // 检查站长是否在数据库中（使用缓存）
+    let ownerInfo = null;
+    let ownerInDatabase = false;
+    if (ownerUsername) {
+      // 先检查缓存
+      const { ownerExistenceCache } = await import('./user-cache');
+      const cachedExists = ownerExistenceCache.get(ownerUsername);
+
+      if (cachedExists !== null) {
+        // 使用缓存的结果
+        ownerInDatabase = cachedExists;
+        if (ownerInDatabase) {
+          // 如果站长在数据库中，获取详细信息
+          ownerInfo = await this.getUserInfoV2(ownerUsername);
+        }
+      } else {
+        // 缓存未命中，查询数据库
+        ownerInfo = await this.getUserInfoV2(ownerUsername);
+        ownerInDatabase = !!ownerInfo;
+        // 更���缓存
+        ownerExistenceCache.set(ownerUsername, ownerInDatabase);
+      }
+
+      // 如果站长不在数据库中，总数+1（无论在哪一页都要加）
+      if (!ownerInDatabase) {
+        total += 1;
+      }
+    }
+
+    // 如果站长不在数据库中且在第一页，需要调整获取的用户数量和偏移量
+    let actualOffset = offset;
+    let actualLimit = limit;
+
+    if (ownerUsername && !ownerInDatabase) {
+      if (offset === 0) {
+        // 第一页：只获取 limit-1 个用户，为站长留出位置
+        actualLimit = limit - 1;
+      } else {
+        // 其他页：偏移量需要减1，因为站长占据了第一页的一个位置
+        actualOffset = offset - 1;
+      }
+    }
 
     // 获取用户列表（按注册时间升序）
     const usernames = await withRetry(() =>
-      this.client.zrange(this.userListKey(), offset, offset + limit - 1)
+      this.client.zrange(this.userListKey(), actualOffset, actualOffset + actualLimit - 1)
     );
 
     const users = [];
 
-    // 如果有站长，确保站长始终在第一位
+    // 如果有站长且在第一页，确保站长始终在第一位
     if (ownerUsername && offset === 0) {
-      const ownerInfo = await this.getUserInfoV2(ownerUsername);
-      if (ownerInfo) {
-        users.push({
-          username: ownerUsername,
-          role: 'owner' as const,
-          banned: ownerInfo.banned,
-          tags: ownerInfo.tags,
-          oidcSub: ownerInfo.oidcSub,
-          enabledApis: ownerInfo.enabledApis,
-          created_at: ownerInfo.created_at,
-        });
-      }
+      // 即使站长不在数据库中，也要添加站长（站长使用环境变量认证）
+      users.push({
+        username: ownerUsername,
+        role: 'owner' as const,
+        banned: ownerInfo?.banned || false,
+        tags: ownerInfo?.tags,
+        oidcSub: ownerInfo?.oidcSub,
+        enabledApis: ownerInfo?.enabledApis,
+        created_at: ownerInfo?.created_at || 0,
+      });
     }
 
     // 获取其他用户信息

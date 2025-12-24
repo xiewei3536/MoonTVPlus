@@ -7982,8 +7982,8 @@ function AdminPageClient() {
   // 刷新配置和用户列表
   const refreshConfigAndUsers = useCallback(async () => {
     await fetchConfig();
-    await fetchUsersV2();
-  }, [fetchConfig, fetchUsersV2]);
+    await fetchUsersV2(userPage); // 保持当前页码
+  }, [fetchConfig, fetchUsersV2, userPage]);
 
   useEffect(() => {
     // 首次加载时显示骨架
