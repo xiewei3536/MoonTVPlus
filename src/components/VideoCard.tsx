@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,react-hooks/exhaustive-deps,@typescript-eslint/no-empty-function */
 
-import { ExternalLink, Heart, Link, PlayCircleIcon, Radio, Trash2 } from 'lucide-react';
+import { ExternalLink, Heart, Link, PlayCircleIcon, Radio, Sparkles, Trash2 } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import React, {
@@ -26,6 +26,7 @@ import { useLongPress } from '@/hooks/useLongPress';
 
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 import MobileActionSheet from '@/components/MobileActionSheet';
+import AIChatPanel from '@/components/AIChatPanel';
 
 export interface VideoCardProps {
   id?: string;
@@ -100,6 +101,18 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
   const [isLoading, setIsLoading] = useState(false);
   const [showMobileActions, setShowMobileActions] = useState(false);
   const [searchFavorited, setSearchFavorited] = useState<boolean | null>(null); // 搜索结果的收藏状态
+  const [showAIChat, setShowAIChat] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+
+  // 检查AI功能是否启用
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const enabled =
+        (window as any).RUNTIME_CONFIG?.AI_ENABLED &&
+        (window as any).RUNTIME_CONFIG?.AI_ENABLE_VIDEOCARD_ENTRY;
+      setAiEnabled(enabled);
+    }
+  }, []);
 
   // 可外部修改的可控字段
   const [dynamicEpisodes, setDynamicEpisodes] = useState<number | undefined>(
@@ -540,6 +553,20 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
       });
     }
 
+    // AI问片功能
+    if (aiEnabled && actualTitle) {
+      actions.push({
+        id: 'ai-chat',
+        label: 'AI问片',
+        icon: <Sparkles size={20} />,
+        onClick: () => {
+          setShowMobileActions(false); // 关闭菜单
+          setShowAIChat(true);
+        },
+        color: 'default' as const,
+      });
+    }
+
     return actions;
   }, [
     config,
@@ -555,6 +582,9 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
     handleClick,
     handleToggleFavorite,
     handleDeleteRecord,
+    handlePlayInNewTab,
+    aiEnabled,
+    actualTitle,
   ]);
 
   return (
@@ -1355,6 +1385,23 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(function VideoCard
         totalEpisodes={actualEpisodes}
         origin={origin}
       />
+
+      {/* AI问片面板 */}
+      {aiEnabled && showAIChat && (
+        <AIChatPanel
+          isOpen={showAIChat}
+          onClose={() => setShowAIChat(false)}
+          context={{
+            title: actualTitle,
+            year: actualYear,
+            douban_id: actualDoubanId,
+            tmdb_id,
+            type: actualSearchType as 'movie' | 'tv',
+            currentEpisode,
+          }}
+          welcomeMessage={`想了解《${actualTitle}》的更多信息吗？我可以帮你查询剧情、演员、评价等。`}
+        />
+      )}
     </>
   );
 }

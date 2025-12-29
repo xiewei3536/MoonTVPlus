@@ -49,6 +49,11 @@ export async function GET(request: NextRequest) {
     OIDCButtonText: config.SiteConfig.OIDCButtonText || '',
     loginBackgroundImage: config.ThemeConfig?.loginBackgroundImage || '',
     registerBackgroundImage: config.ThemeConfig?.registerBackgroundImage || '',
+    // AI配置（只暴露功能开关，不暴露API密钥等敏感信息）
+    AIEnabled: config.AIConfig?.Enabled || false,
+    AIEnableHomepageEntry: config.AIConfig?.EnableHomepageEntry || false,
+    AIEnableVideoCardEntry: config.AIConfig?.EnableVideoCardEntry || false,
+    AIEnablePlayPageEntry: config.AIConfig?.EnablePlayPageEntry || false,
   };
   return NextResponse.json(result);
 }

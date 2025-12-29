@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Heart, Search, X, Cloud } from 'lucide-react';
+import { Heart, Search, X, Cloud, Sparkles } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
@@ -48,6 +48,7 @@ import DoubanComments from '@/components/DoubanComments';
 import SmartRecommendations from '@/components/SmartRecommendations';
 import DanmakuFilterSettings from '@/components/DanmakuFilterSettings';
 import Toast, { ToastProps } from '@/components/Toast';
+import AIChatPanel from '@/components/AIChatPanel';
 import { useEnableComments } from '@/hooks/useEnableComments';
 import PansouSearch from '@/components/PansouSearch';
 
@@ -103,6 +104,20 @@ function PlayPageClient() {
 
   // 网盘搜索弹窗状态
   const [showPansouDialog, setShowPansouDialog] = useState(false);
+
+  // AI问片状态
+  const [showAIChat, setShowAIChat] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+
+  // 检查AI功能是否启用
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const enabled =
+        (window as any).RUNTIME_CONFIG?.AI_ENABLED &&
+        (window as any).RUNTIME_CONFIG?.AI_ENABLE_PLAYPAGE_ENTRY;
+      setAiEnabled(enabled);
+    }
+  }, []);
 
   // 网页全屏状态 - 控制导航栏的显示隐藏
   const [isWebFullscreen, setIsWebFullscreen] = useState(false);
@@ -5039,10 +5054,10 @@ function PlayPageClient() {
 
               {/* 第三方应用打开按钮 - 观影室同步状态下隐藏 */}
               {videoUrl && !playSync.isInRoom && (
-                <div className='mt-3 px-2 lg:flex-shrink-0 flex justify-end'>
+                <div className='mt-3 px-2 lg:flex-shrink-0'>
                   <div className='bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-lg p-2 border border-gray-200/50 dark:border-gray-700/50 w-full lg:w-auto overflow-x-auto'>
-                    <div className='flex gap-1.5 justify-between lg:flex-wrap items-center'>
-                      <div className='flex gap-1.5 lg:flex-wrap'>
+                    <div className='flex gap-1.5 flex-nowrap lg:flex-wrap items-center'>
+                      <div className='flex gap-1.5 flex-nowrap lg:flex-wrap'>
                         {/* 下载按钮 */}
                         <button
                           onClick={(e) => {
@@ -5346,6 +5361,19 @@ function PlayPageClient() {
                 >
                   <Cloud className='h-6 w-6 text-gray-700 dark:text-gray-300' />
                 </button>
+                {/* AI问片按钮 */}
+                {aiEnabled && detail && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowAIChat(true);
+                    }}
+                    className='flex-shrink-0 hover:opacity-80 transition-opacity'
+                    title='AI问片'
+                  >
+                    <Sparkles className='h-6 w-6 text-gray-700 dark:text-gray-300' />
+                  </button>
+                )}
                 {/* 豆瓣评分显示 */}
                 {doubanRating && doubanRating.value > 0 && (
                   <div className='flex items-center gap-2 text-base font-normal'>
@@ -5602,6 +5630,23 @@ function PlayPageClient() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* AI问片面板 */}
+      {aiEnabled && showAIChat && detail && (
+        <AIChatPanel
+          isOpen={showAIChat}
+          onClose={() => setShowAIChat(false)}
+          context={{
+            title: detail.title,
+            year: detail.year,
+            douban_id: videoDoubanId !== 0 ? videoDoubanId : undefined,
+            tmdb_id: detail.tmdb_id,
+            type: detail.type === 'movie' ? 'movie' : 'tv',
+            currentEpisode: currentEpisodeIndex + 1,
+          }}
+          welcomeMessage={`想了解《${detail.title}》的更多信息吗？我可以帮你查询剧情、演员、评价等。`}
+        />
       )}
     </PageLayout>
   );

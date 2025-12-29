@@ -73,6 +73,10 @@ export default async function RootLayout({
   let enableOIDCLogin = false;
   let enableOIDCRegistration = false;
   let oidcButtonText = '';
+  let aiEnabled = false;
+  let aiEnableHomepageEntry = false;
+  let aiEnableVideoCardEntry = false;
+  let aiEnablePlayPageEntry = false;
   let customCategories = [] as {
     name: string;
     type: 'movie' | 'tv';
@@ -108,6 +112,11 @@ export default async function RootLayout({
     enableOIDCLogin = config.SiteConfig.EnableOIDCLogin || false;
     enableOIDCRegistration = config.SiteConfig.EnableOIDCRegistration || false;
     oidcButtonText = config.SiteConfig.OIDCButtonText || '';
+    // AI配置
+    aiEnabled = config.AIConfig?.Enabled || false;
+    aiEnableHomepageEntry = config.AIConfig?.EnableHomepageEntry || false;
+    aiEnableVideoCardEntry = config.AIConfig?.EnableVideoCardEntry || false;
+    aiEnablePlayPageEntry = config.AIConfig?.EnablePlayPageEntry || false;
     // 检查是否启用了 OpenList 功能
     openListEnabled = !!(
       config.OpenListConfig?.Enabled &&
@@ -142,6 +151,10 @@ export default async function RootLayout({
     ENABLE_OIDC_LOGIN: enableOIDCLogin,
     ENABLE_OIDC_REGISTRATION: enableOIDCRegistration,
     OIDC_BUTTON_TEXT: oidcButtonText,
+    AI_ENABLED: aiEnabled,
+    AI_ENABLE_HOMEPAGE_ENTRY: aiEnableHomepageEntry,
+    AI_ENABLE_VIDEOCARD_ENTRY: aiEnableVideoCardEntry,
+    AI_ENABLE_PLAYPAGE_ENTRY: aiEnablePlayPageEntry,
   };
 
   return (

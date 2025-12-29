@@ -2,7 +2,7 @@
 
 'use client';
 
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Bot } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -21,6 +21,7 @@ import { useSite } from '@/components/SiteProvider';
 import VideoCard from '@/components/VideoCard';
 import HttpWarningDialog from '@/components/HttpWarningDialog';
 import BannerCarousel from '@/components/BannerCarousel';
+import AIChatPanel from '@/components/AIChatPanel';
 
 function HomeClient() {
   // 移除了 activeTab 状态，收藏夹功能已移到 UserMenu
@@ -37,6 +38,18 @@ function HomeClient() {
 
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [showHttpWarning, setShowHttpWarning] = useState(true);
+  const [showAIChat, setShowAIChat] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+
+  // 检查AI功能是否启用
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const enabled =
+        (window as any).RUNTIME_CONFIG?.AI_ENABLED &&
+        (window as any).RUNTIME_CONFIG?.AI_ENABLE_HOMEPAGE_ENTRY;
+      setAiEnabled(enabled);
+    }
+  }, []);
 
   // 检查公告弹窗状态
   useEffect(() => {
@@ -133,14 +146,27 @@ function HomeClient() {
   return (
     <PageLayout>
       {/* TMDB 热门轮播图 */}
-      <div className='w-full mb-6 sm:mb-8'>
+      <div className='w-full mb-4'>
         <BannerCarousel />
       </div>
 
-      <div className='px-2 sm:px-10 py-4 sm:py-8 overflow-visible'>
+      <div className='px-2 sm:px-10 pb-4 sm:pb-8 overflow-visible'>
         <div className='max-w-[95%] mx-auto'>
           {/* 首页内容 */}
           <>
+              {/* AI问片入口 */}
+              {aiEnabled && (
+                <div className='flex items-center justify-end mb-4'>
+                  <button
+                    onClick={() => setShowAIChat(true)}
+                    className='p-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors'
+                    title='AI问片'
+                  >
+                    <Bot size={20} />
+                  </button>
+                </div>
+              )}
+
               {/* 继续观看 */}
               <ContinueWatching />
 
@@ -430,6 +456,15 @@ function HomeClient() {
       {/* HTTP 环境警告弹窗 */}
       {showHttpWarning && (
         <HttpWarningDialog onClose={() => setShowHttpWarning(false)} />
+      )}
+
+      {/* AI问片面板 */}
+      {aiEnabled && (
+        <AIChatPanel
+          isOpen={showAIChat}
+          onClose={() => setShowAIChat(false)}
+          welcomeMessage='你好！我是MoonTVPlus的AI影视助手。想看什么电影或剧集？需要推荐吗？'
+        />
       )}
 
       {/* 公告弹窗 */}

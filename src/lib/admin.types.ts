@@ -112,6 +112,46 @@ export interface AdminConfig {
     ResourceCount?: number; // 资源数量
     ScanInterval?: number; // 定时扫描间隔（分钟），0表示关闭，最低60分钟
   };
+  AIConfig?: {
+    Enabled: boolean; // 是否启用AI问片功能
+    Provider: 'openai' | 'claude' | 'custom'; // AI服务提供商
+    // OpenAI配置
+    OpenAIApiKey?: string;
+    OpenAIBaseURL?: string; // 自定义API地址（如Azure、国内代理等）
+    OpenAIModel?: string; // 模型名称，如gpt-4, gpt-3.5-turbo
+    // Claude配置
+    ClaudeApiKey?: string;
+    ClaudeModel?: string; // 模型名称，如claude-3-opus-20240229
+    // 自定义配置（兼容OpenAI格式的API）
+    CustomApiKey?: string;
+    CustomBaseURL?: string;
+    CustomModel?: string;
+    // 决策模型配置
+    EnableDecisionModel: boolean; // 是否启用决策模型（用AI判断是否需要联网/数据源）
+    DecisionProvider?: 'openai' | 'claude' | 'custom'; // 决策模型提供商
+    DecisionOpenAIApiKey?: string;
+    DecisionOpenAIBaseURL?: string;
+    DecisionOpenAIModel?: string;
+    DecisionClaudeApiKey?: string;
+    DecisionClaudeModel?: string;
+    DecisionCustomApiKey?: string;
+    DecisionCustomBaseURL?: string;
+    DecisionCustomModel?: string;
+    // 联网搜索配置
+    EnableWebSearch: boolean; // 是否启用联网搜索
+    WebSearchProvider?: 'tavily' | 'serper' | 'serpapi'; // 搜索服务提供商
+    TavilyApiKey?: string; // Tavily API密钥
+    SerperApiKey?: string; // Serper.dev API密钥
+    SerpApiKey?: string; // SerpAPI密钥
+    // 功能开关
+    EnableHomepageEntry: boolean; // 首页入口开关
+    EnableVideoCardEntry: boolean; // VideoCard入口开关
+    EnablePlayPageEntry: boolean; // 播放页入口开关
+    // 高级设置
+    Temperature?: number; // AI温度参数（0-2），默认0.7
+    MaxTokens?: number; // 最大回复token数，默认1000
+    SystemPrompt?: string; // 自定义系统提示词
+  };
 }
 
 export interface AdminConfigResult {
