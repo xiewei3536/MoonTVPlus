@@ -1,0 +1,48 @@
+name: Upstream Sync
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # 每天午夜執行一次 (UTC時間)
+  workflow_dispatch: # 允許手動點擊按鈕觸發
+
+jobs:
+  sync_latest_from_upstream:
+    name: Sync latest commits from upstream repo
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }} # 確保只在 Fork 的 Repo 執行
+
+    steps:
+      # 步驟 1: 檢出你的代碼
+      - uses: actions/checkout@v3
+
+      # 步驟 2: 執行同步動作
+      - name: Sync upstream changes
+        id: sync
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          # 【重要】請把這裡改成原作者的帳號/專案名稱
+          upstream_sync_repo: mtvpls/MoonTVPlus
+          
+          # 原作者的主分支名稱 (通常是 main 或 master)
+          upstream_sync_branch: main
+          
+          # 你想要更新的分支名稱
+          target_sync_branch: main
+          
+          # 這是 GitHub 自動生成的 Token，不需要自己去申請
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }} 
+          
+          # 設定為 false 代表如果自動合併失敗（有衝突），不會強制覆蓋你的修改
+          test_mode: false
+
+      # 步驟 3: (選用) 如果有更新，顯示 Log
+      - name: New commits found
+        if: steps.sync.outputs.has_new_commits == 'true'
+        run: echo "New commits were found to sync."
+    
+      - name: No new commits
+        if: steps.sync.outputs.has_new_commits == 'false'
+        run: echo "There were no new commits."
