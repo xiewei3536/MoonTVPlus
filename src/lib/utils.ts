@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
 import he from 'he';
 import Hls from 'hls.js';
+import bs58 from 'bs58';
 
 function getDoubanImageProxyConfig(): {
   proxyType:
@@ -135,12 +136,13 @@ export function processVideoUrl(originalUrl: string): string {
 /**
  * 从m3u8地址获取视频质量等级和网络信息
  * @param m3u8Url m3u8播放列表的URL
- * @returns Promise<{quality: string, loadSpeed: string, pingTime: number}> 视频质量等级和网络信息
+ * @returns Promise<{quality: string, loadSpeed: string, pingTime: number, bitrate: string}> 视频质量等级和网络信息
  */
 export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
   quality: string; // 如720p、1080p等
   loadSpeed: string; // 自动转换为KB/s或MB/s
   pingTime: number; // 网络延迟（毫秒）
+  bitrate: string; // 视频码率（如 "2.5 Mbps"）
 }> {
   try {
     // 直接使用m3u8 URL作为视频源，避免CORS问题
@@ -182,6 +184,7 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       let actualLoadSpeed = '未知';
       let hasSpeedCalculated = false;
       let hasMetadataLoaded = false;
+      let estimatedBitrate = 0; // 估算的码率（bps）
 
       let fragmentStartTime = 0;
 
@@ -211,17 +214,32 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
                         ? '480p'
                         : 'SD'; // 480p: 854x480
 
+            // 格式化码率
+            const bitrateStr = estimatedBitrate > 0
+              ? estimatedBitrate >= 1000000
+                ? `${(estimatedBitrate / 1000000).toFixed(1)} Mbps`
+                : `${Math.round(estimatedBitrate / 1000)} Kbps`
+              : '未知';
+
             resolve({
               quality,
               loadSpeed: actualLoadSpeed,
               pingTime: Math.round(pingTime),
+              bitrate: bitrateStr,
             });
           } else {
             // webkit 无法获取尺寸，直接返回
+            const bitrateStr = estimatedBitrate > 0
+              ? estimatedBitrate >= 1000000
+                ? `${(estimatedBitrate / 1000000).toFixed(1)} Mbps`
+                : `${Math.round(estimatedBitrate / 1000)} Kbps`
+              : '未知';
+
             resolve({
               quality: '未知',
               loadSpeed: actualLoadSpeed,
               pingTime: Math.round(pingTime),
+              bitrate: bitrateStr,
             });
           }
         }
@@ -255,6 +273,18 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
               actualLoadSpeed = `${avgSpeedKBps.toFixed(1)} KB/s`;
             }
             hasSpeedCalculated = true;
+
+            // 从分片估算码率
+            if (data.frag && data.frag.duration > 0) {
+              const fragmentDuration = data.frag.duration; // 分片时长（秒）
+              const fragmentSize = size; // 分片大小（字节）
+
+              // 码率 = (分片大小 × 8 bits) / 分片时长
+              estimatedBitrate = Math.round((fragmentSize * 8) / fragmentDuration);
+
+              console.log(`[测速] 估算码率: ${(estimatedBitrate / 1000000).toFixed(2)} Mbps (分片: ${(fragmentSize / 1024 / 1024).toFixed(2)} MB, 时长: ${fragmentDuration.toFixed(1)}s)`);
+            }
+
             checkAndResolve(); // 尝试返回结果
           }
         }
@@ -300,4 +330,44 @@ export function cleanHtmlTags(text: string): string {
 
   // 使用 he 库解码 HTML 实体
   return he.decode(cleanedText);
+}
+
+/**
+ * 将字符串编码为 Base58
+ * @param str 要编码的字符串
+ * @returns Base58 编码后的字符串
+ */
+export function base58Encode(str: string): string {
+  if (!str) return '';
+
+  // 在浏览器环境中使用 TextEncoder
+  if (typeof window !== 'undefined') {
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(str);
+    return bs58.encode(bytes);
+  }
+
+  // 在 Node.js 环境中使用 Buffer
+  const buffer = Buffer.from(str, 'utf-8');
+  return bs58.encode(buffer);
+}
+
+/**
+ * 将 Base58 字符串解码为原始字符串
+ * @param encoded Base58 编码的字符串
+ * @returns 解码后的原始字符串
+ */
+export function base58Decode(encoded: string): string {
+  if (!encoded) return '';
+
+  const bytes = bs58.decode(encoded);
+
+  // 在浏览器环境中使用 TextDecoder
+  if (typeof window !== 'undefined') {
+    const decoder = new TextDecoder();
+    return decoder.decode(bytes);
+  }
+
+  // 在 Node.js 环境中使用 Buffer
+  return Buffer.from(bytes).toString('utf-8');
 }

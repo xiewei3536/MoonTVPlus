@@ -280,6 +280,31 @@ export class OpenListClient {
     }
   }
 
+  // 获取视频预览流
+  async getVideoPreview(path: string): Promise<any> {
+    const response = await this.fetchWithRetry(`${this.baseURL}/api/fs/other`, {
+      method: 'POST',
+      headers: await this.getHeaders(),
+      body: JSON.stringify({
+        path: path,
+        method: 'video_preview',
+        password: '',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`视频预览请求失败: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.code !== 200) {
+      throw new Error(`视频预览失败: ${data.message}`);
+    }
+
+    return data;
+  }
+
   // 检查连通性
   async checkConnectivity(): Promise<{ success: boolean; message: string }> {
     try {

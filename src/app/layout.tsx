@@ -66,6 +66,7 @@ export default async function RootLayout({
   let tmdbApiKey = '';
   let openListEnabled = false;
   let embyEnabled = false;
+  let xiaoyaEnabled = false;
   let loginBackgroundImage = '';
   let registerBackgroundImage = '';
   let enableRegistration = false;
@@ -81,6 +82,7 @@ export default async function RootLayout({
   let aiEnablePlayPageEntry = false;
   let aiDefaultMessageNoVideo = '';
   let aiDefaultMessageWithVideo = '';
+  let enableMovieRequest = true;
   let customCategories = [] as {
     name: string;
     type: 'movie' | 'tv';
@@ -123,6 +125,8 @@ export default async function RootLayout({
     aiEnablePlayPageEntry = config.AIConfig?.EnablePlayPageEntry || false;
     aiDefaultMessageNoVideo = config.AIConfig?.DefaultMessageNoVideo || '';
     aiDefaultMessageWithVideo = config.AIConfig?.DefaultMessageWithVideo || '';
+    // 求片功能配置
+    enableMovieRequest = config.SiteConfig.EnableMovieRequest ?? true;
     // 检查是否启用了 OpenList 功能
     openListEnabled = !!(
       config.OpenListConfig?.Enabled &&
@@ -135,6 +139,11 @@ export default async function RootLayout({
       config.EmbyConfig?.Sources &&
       config.EmbyConfig.Sources.length > 0 &&
       config.EmbyConfig.Sources.some(s => s.enabled && s.ServerURL)
+    );
+    // 检查是否启用了小雅功能
+    xiaoyaEnabled = !!(
+      config.XiaoyaConfig?.Enabled &&
+      config.XiaoyaConfig?.ServerURL
     );
   }
 
@@ -155,7 +164,8 @@ export default async function RootLayout({
     VOICE_CHAT_STRATEGY: process.env.NEXT_PUBLIC_VOICE_CHAT_STRATEGY || 'webrtc-fallback',
     OPENLIST_ENABLED: openListEnabled,
     EMBY_ENABLED: embyEnabled,
-    PRIVATE_LIBRARY_ENABLED: openListEnabled || embyEnabled,
+    XIAOYA_ENABLED: xiaoyaEnabled,
+    PRIVATE_LIBRARY_ENABLED: openListEnabled || embyEnabled || xiaoyaEnabled,
     LOGIN_BACKGROUND_IMAGE: loginBackgroundImage,
     REGISTER_BACKGROUND_IMAGE: registerBackgroundImage,
     ENABLE_REGISTRATION: enableRegistration,
@@ -171,7 +181,7 @@ export default async function RootLayout({
     AI_ENABLE_PLAYPAGE_ENTRY: aiEnablePlayPageEntry,
     AI_DEFAULT_MESSAGE_NO_VIDEO: aiDefaultMessageNoVideo,
     AI_DEFAULT_MESSAGE_WITH_VIDEO: aiDefaultMessageWithVideo,
-    ENABLE_SOURCE_SEARCH: process.env.NEXT_PUBLIC_ENABLE_SOURCE_SEARCH !== 'false',
+    ENABLE_MOVIE_REQUEST: enableMovieRequest,
   };
 
   return (

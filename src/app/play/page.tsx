@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Heart, Search, X, Cloud, Sparkles } from 'lucide-react';
+import { Heart, Search, X, Cloud, Sparkles, AlertCircle } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
@@ -51,6 +51,7 @@ import {
 import type { DanmakuAnime, DanmakuSelection, DanmakuSettings, DanmakuComment } from '@/lib/danmaku/types';
 import { SearchResult, DanmakuFilterConfig, EpisodeFilterConfig } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
+import { getTMDBImageUrl } from '@/lib/tmdb.search';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import DownloadEpisodeSelector from '@/components/DownloadEpisodeSelector';
@@ -63,6 +64,7 @@ import AIChatPanel from '@/components/AIChatPanel';
 import { useEnableComments } from '@/hooks/useEnableComments';
 import PansouSearch from '@/components/PansouSearch';
 import CustomHeatmap from '@/components/CustomHeatmap';
+import CorrectDialog from '@/components/CorrectDialog';
 
 // 扩展 HTMLVideoElement 类型以支持 hls 属性
 declare global {
@@ -121,6 +123,9 @@ function PlayPageClient() {
   const [showAIChat, setShowAIChat] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiDefaultMessageWithVideo, setAiDefaultMessageWithVideo] = useState('');
+
+  // 纠错弹窗状态
+  const [showCorrectDialog, setShowCorrectDialog] = useState(false);
 
   // 检查AI功能是否启用
   useEffect(() => {
@@ -464,9 +469,13 @@ function PlayPageClient() {
   const [doubanAka, setDoubanAka] = useState<string[]>([]);
   const [doubanYear, setDoubanYear] = useState<string>(''); // 从 pubdate 提取的年份
 
+  // 纠错后的描述信息（用于显示，不触发 detail 更新）
+  const [correctedDesc, setCorrectedDesc] = useState<string>('');
+
   // 当前源和ID - source 直接存储完整格式（如 'emby_wumei' 或 'emby'）
   const [currentSource, setCurrentSource] = useState(searchParams.get('source') || '');
   const [currentId, setCurrentId] = useState(searchParams.get('id') || '');
+  const [fileName] = useState(searchParams.get('fileName') || ''); // 小雅源：用户点击的文件名
 
   // 解析 source 参数以获取 embyKey（仅用于 API 调用）
   const parseSourceForApi = (source: string): { source: string; embyKey?: string } => {
@@ -993,6 +1002,11 @@ function PlayPageClient() {
                   if (detCacheAge < detCacheMaxAge && data && data.backdrop) {
                     console.log('使用缓存的TMDB详情数据');
                     setTmdbBackdrop(data.backdrop);
+
+                    // 如果没有豆瓣ID，使用TMDb数据补充
+                    if (!videoDoubanId || videoDoubanId === 0) {
+                      populateDoubanFieldsFromTMDB(data);
+                    }
                     return;
                   }
                 } catch (e) {
@@ -1022,6 +1036,11 @@ function PlayPageClient() {
 
         if (result.backdrop) {
           setTmdbBackdrop(result.backdrop);
+
+          // 如果没有豆瓣ID，使用TMDb数据补充
+          if (!videoDoubanId || videoDoubanId === 0) {
+            populateDoubanFieldsFromTMDB(result);
+          }
 
           // 保存title到tmdbId的映射到localStorage（1个月）
           if (result.tmdbId) {
@@ -1056,12 +1075,45 @@ function PlayPageClient() {
       }
     };
 
+    // 辅助函数：使用TMDb数据填充豆瓣字段
+    const populateDoubanFieldsFromTMDB = (tmdbData: any) => {
+      // 设置评分
+      if (tmdbData.rating) {
+        const ratingValue = parseFloat(tmdbData.rating);
+        setDoubanRating({
+          value: ratingValue,
+          count: 0, // TMDb不提供评分人数
+          star_count: Math.round(ratingValue / 2), // 转换为5星制
+        });
+      }
+
+      // 设置年份
+      if (tmdbData.releaseDate) {
+        const year = tmdbData.releaseDate.split('-')[0];
+        setDoubanYear(year);
+      }
+
+      // 设置card_subtitle（优先使用genres标签，否则使用年份和类型）
+      if (tmdbData.genres && Array.isArray(tmdbData.genres) && tmdbData.genres.length > 0) {
+        const genreNames = tmdbData.genres.map((g: any) => g.name).join(' / ');
+        setDoubanCardSubtitle(genreNames);
+      } else if (tmdbData.mediaType && tmdbData.releaseDate) {
+        // 兜底：如果没有genres，使用年份和类型
+        const year = tmdbData.releaseDate.split('-')[0];
+        const typeText = tmdbData.mediaType === 'movie' ? '电影' : '电视剧';
+        setDoubanCardSubtitle(`${year} / ${typeText}`);
+      }
+    };
+
     fetchTMDBBackdrop();
-  }, [videoTitle]);
+  }, [videoTitle, videoDoubanId]);
 
 
   // 视频播放地址
   const [videoUrl, setVideoUrl] = useState('');
+
+  // 视频清晰度列表
+  const [videoQualities, setVideoQualities] = useState<Array<{name: string, url: string}>>([]);
 
   // 视频源代理模式状态
   const [sourceProxyMode, setSourceProxyMode] = useState(false);
@@ -1101,7 +1153,7 @@ function PlayPageClient() {
 
   // 保存优选时的测速结果，避免EpisodeSelector重复测速
   const [precomputedVideoInfo, setPrecomputedVideoInfo] = useState<
-    Map<string, { quality: string; loadSpeed: string; pingTime: number }>
+    Map<string, { quality: string; loadSpeed: string; pingTime: number; bitrate: string }>
   >(new Map());
 
   // 折叠状态（仅在 lg 及以上屏幕有效）
@@ -1199,7 +1251,7 @@ function PlayPageClient() {
     const batchSize = Math.ceil(sources.length / 2);
     const allResults: Array<{
       source: SearchResult;
-      testResult: { quality: string; loadSpeed: string; pingTime: number };
+      testResult: { quality: string; loadSpeed: string; pingTime: number; bitrate: string };
     } | null> = [];
 
     for (let start = 0; start < sources.length; start += batchSize) {
@@ -1239,6 +1291,7 @@ function PlayPageClient() {
         quality: string;
         loadSpeed: string;
         pingTime: number;
+        bitrate: string;
         hasError?: boolean;
       }
     >();
@@ -1255,7 +1308,7 @@ function PlayPageClient() {
     // 过滤出成功的结果用于优选计算
     const successfulResults = allResults.filter(Boolean) as Array<{
       source: SearchResult;
-      testResult: { quality: string; loadSpeed: string; pingTime: number };
+      testResult: { quality: string; loadSpeed: string; pingTime: number; bitrate: string };
     }>;
 
     setPrecomputedVideoInfo(newVideoInfoMap);
@@ -1419,6 +1472,21 @@ function PlayPageClient() {
     detailData: SearchResult | null,
     episodeIndex: number
   ) => {
+    // 动态设置 referrer policy：只在小雅源时不发送 Referer
+    const existingMeta = document.querySelector('meta[name="referrer"]');
+    if (detailData?.source === 'xiaoya') {
+      if (!existingMeta) {
+        const meta = document.createElement('meta');
+        meta.name = 'referrer';
+        meta.content = 'no-referrer';
+        document.head.appendChild(meta);
+      }
+    } else {
+      if (existingMeta) {
+        existingMeta.remove();
+      }
+    }
+
     if (
       !detailData ||
       !detailData.episodes ||
@@ -1433,6 +1501,33 @@ function PlayPageClient() {
     }
 
     let newUrl = detailData?.episodes[episodeIndex] || '';
+
+    // 如果是小雅或 openlist 接口，先请求获取真实 URL
+    if (newUrl.startsWith('/api/xiaoya/play') || newUrl.startsWith('/api/openlist/play')) {
+      try {
+        // 添加 format=json 参数
+        const separator = newUrl.includes('?') ? '&' : '?';
+        const fetchUrl = `${newUrl}${separator}format=json`;
+
+        const response = await fetch(fetchUrl);
+        const data = await response.json();
+        if (data.url) {
+          newUrl = data.url;
+          // 保存清晰度列表
+          if (data.qualities && data.qualities.length > 0) {
+            setVideoQualities(data.qualities);
+          } else {
+            setVideoQualities([]);
+          }
+        }
+      } catch (error) {
+        console.error('获取播放链接失败:', error);
+        setVideoQualities([]);
+      }
+    } else {
+      // 非小雅/openlist 源，清空清晰度列表
+      setVideoQualities([]);
+    }
 
     // 检查是否有本地下载的文件
     const hasLocalFile = await checkLocalDownload(currentSource, currentId, episodeIndex);
@@ -2267,18 +2362,23 @@ function PlayPageClient() {
     const fetchSourceDetail = async (
       source: string,
       id: string,
-      title: string
+      title: string,
+      fileNameParam?: string
     ): Promise<SearchResult[]> => {
       try {
-        const detailResponse = await fetch(
-          `/api/source-detail?source=${source}&id=${id}&title=${encodeURIComponent(title)}`
-        );
+        let url = `/api/source-detail?source=${source}&id=${id}&title=${encodeURIComponent(title)}`;
+        // 如果有fileName参数（小雅源），添加到URL
+        if (fileNameParam) {
+          url += `&fileName=${encodeURIComponent(fileNameParam)}`;
+        }
+        const detailResponse = await fetch(url);
         if (!detailResponse.ok) {
           throw new Error('获取视频详情失败');
         }
         const detailData = (await detailResponse.json()) as SearchResult;
-        setAvailableSources([detailData]);
-        return [detailData];
+        const sourcesWithCorrections = applyCorrectionsToSources([detailData]);
+        setAvailableSources(sourcesWithCorrections);
+        return sourcesWithCorrections;
       } catch (err) {
         console.error('获取视频详情失败:', err);
         return [];
@@ -2361,7 +2461,7 @@ function PlayPageClient() {
                     : true)
               );
 
-              setAvailableSources(results);
+              setAvailableSources(applyCorrectionsToSources(results));
               return results;
             }
           } catch (error) {
@@ -2395,7 +2495,7 @@ function PlayPageClient() {
               ? getType(result) === searchType
               : true)
         );
-        setAvailableSources(results);
+        setAvailableSources(applyCorrectionsToSources(results));
         return results;
       } catch (err) {
         setSourceSearchError(err instanceof Error ? err.message : '搜索失败');
@@ -2428,7 +2528,13 @@ function PlayPageClient() {
         // 先快速获取当前源的详情
         try {
           // currentSource 已经是完整格式（如 'emby_wumei'）
-          const currentSourceDetail = await fetchSourceDetail(currentSource, currentId, searchTitle || videoTitle);
+          // 如果是小雅源且有fileName参数，传递给API
+          const currentSourceDetail = await fetchSourceDetail(
+            currentSource,
+            currentId,
+            searchTitle || videoTitle,
+            currentSource === 'xiaoya' ? fileName : undefined
+          );
           if (currentSourceDetail.length > 0) {
             detailData = currentSourceDetail[0];
             sourcesInfo = currentSourceDetail;
@@ -2448,7 +2554,7 @@ function PlayPageClient() {
               allSources.push(source);
             }
           });
-          setAvailableSources(allSources);
+          setAvailableSources(applyCorrectionsToSources(allSources));
           setBackgroundSourcesLoading(false);
         }).catch((err) => {
           console.error('异步获取其他源失败:', err);
@@ -2500,7 +2606,7 @@ function PlayPageClient() {
         setLoadingStage('preferring');
         setLoadingMessage('⚡ 正在优选最佳播放源...');
 
-        // 过滤掉 openlist 和所有 emby 源，它们不参与测速
+        // 过滤掉 openlist、所有 emby 源和 xiaoya 源，它们不参与测速
         const sourcesToTest = sourcesInfo.filter(s => {
           // 检查是否为 openlist
           if (s.source === 'openlist') return false;
@@ -2508,19 +2614,23 @@ function PlayPageClient() {
           // 检查是否为 emby 源（包括 emby 和 emby_xxx 格式）
           if (s.source === 'emby' || s.source.startsWith('emby_')) return false;
 
+          // 检查是否为 xiaoya 源
+          if (s.source === 'xiaoya') return false;
+
           return true;
         });
 
         const excludedSources = sourcesInfo.filter(s =>
           s.source === 'openlist' ||
           s.source === 'emby' ||
-          s.source.startsWith('emby_')
+          s.source.startsWith('emby_') ||
+          s.source === 'xiaoya'
         );
 
         if (sourcesToTest.length > 0) {
           detailData = await preferBestSource(sourcesToTest);
         } else if (excludedSources.length > 0) {
-          // 如果只有 openlist/emby 源，直接使用第一个
+          // 如果只有 openlist/emby/xiaoya 源，直接使用第一个
           detailData = excludedSources[0];
         } else {
           detailData = sourcesInfo[0];
@@ -2542,23 +2652,43 @@ function PlayPageClient() {
       // 直接使用 detailData.source（已经是完整格式）
       setCurrentSource(detailData.source);
       setCurrentId(detailData.id);
+
+      // 如果是小雅源，检查并应用纠错信息
+      if (detailData.source === 'xiaoya') {
+        const correction = getXiaoyaCorrection(detailData.source, detailData.id);
+        if (correction) {
+          console.log('发现小雅源纠错信息，正在应用...', correction);
+          detailData = applyCorrection(detailData, correction);
+          // 同时设置纠错后的描述
+          if (correction.overview) {
+            setCorrectedDesc(correction.overview);
+          }
+        }
+      }
+
+      // 更新所有相关状态（在应用纠错信息之后）
       setVideoYear(detailData.year);
       setVideoTitle(detailData.title || videoTitleRef.current);
       setVideoCover(detailData.poster);
       setVideoDoubanId(detailData.douban_id || 0);
+
       setDetail(detailData);
       setSourceProxyMode(detailData.proxyMode || false); // 从 detail 数据中读取代理模式
       if (currentEpisodeIndex >= detailData.episodes.length) {
         setCurrentEpisodeIndex(0);
       }
 
-      // 规范URL参数（不更新title，避免循环刷新）
+      // 规范URL参数
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.set('source', detailData.source);
       newUrl.searchParams.set('id', detailData.id);
       newUrl.searchParams.set('year', detailData.year);
-      // 保持原有的 title，不更新
+      newUrl.searchParams.set('title', detailData.title);
       newUrl.searchParams.delete('prefer');
+      // 只有当元数据不是从文件获取时，才删除fileName参数
+      if (detailData.metadataSource !== 'file') {
+        newUrl.searchParams.delete('fileName');
+      }
       window.history.replaceState({}, '', newUrl.toString());
 
       setLoadingStage('ready');
@@ -2570,18 +2700,52 @@ function PlayPageClient() {
         const key = generateStorageKey(detailData.source, detailData.id);
         const record = allRecords[key];
 
+        // 确定初始集数索引
+        let initialIndex = 0;
+        let shouldResumeTime = false;
+
         if (record) {
-          const targetIndex = record.index - 1;
-          const targetTime = record.play_time;
+          // 有播放记录
+          const recordIndex = record.index - 1;
+          const recordTime = record.play_time;
 
-          // 更新当前选集索引
-          if (targetIndex < detailData.episodes.length && targetIndex >= 0) {
-            setCurrentEpisodeIndex(targetIndex);
-            currentEpisodeIndexRef.current = targetIndex;
+          // 如果有initialEpisodeIndex（用户从文件点击进入）
+          if (detailData.initialEpisodeIndex !== undefined) {
+            // 如果播放记录的集数和点击的文件集数一致，则使用播放记录的时间
+            if (recordIndex === detailData.initialEpisodeIndex) {
+              initialIndex = recordIndex;
+              shouldResumeTime = true;
+              resumeTimeRef.current = recordTime;
+              console.log('[Play] 播放记录集数与点击文件一致，恢复播放进度:', recordTime);
+            } else {
+              // 否则使用点击的文件集数，从头开始播放
+              initialIndex = detailData.initialEpisodeIndex;
+              console.log('[Play] 使用点击的文件集数:', initialIndex);
+            }
+          } else {
+            // 没有initialEpisodeIndex，使用播放记录
+            initialIndex = recordIndex;
+            shouldResumeTime = true;
+            resumeTimeRef.current = recordTime;
+            console.log('[Play] 使用播放记录集数:', initialIndex);
           }
+        } else {
+          // 没有播放记录
+          if (detailData.initialEpisodeIndex !== undefined) {
+            // 使用点击的文件集数
+            initialIndex = detailData.initialEpisodeIndex;
+            console.log('[Play] 没有播放记录，使用点击的文件集数:', initialIndex);
+          } else {
+            // 默认从第0集开始
+            initialIndex = 0;
+            console.log('[Play] 没有播放记录，从第0集开始');
+          }
+        }
 
-          // 保存待恢复的播放进度，待播放器就绪后跳转
-          resumeTimeRef.current = targetTime;
+        // 更新当前选集索引
+        if (initialIndex < detailData.episodes.length && initialIndex >= 0) {
+          setCurrentEpisodeIndex(initialIndex);
+          currentEpisodeIndexRef.current = initialIndex;
         }
       } catch (err) {
         console.error('读取播放记录失败:', err);
@@ -2836,9 +3000,33 @@ function PlayPageClient() {
       newUrl.searchParams.set('title', newDetail.title || newTitle);
       window.history.replaceState({}, '', newUrl.toString());
 
-      setVideoTitle(newDetail.title || newTitle);
+      // 如果是小雅源，检查并应用纠错信息
+      let finalTitle = newDetail.title || newTitle;
+      let finalCover = newDetail.poster;
+      let finalDesc = '';
+
+      if (newDetail.source === 'xiaoya') {
+        const correction = getXiaoyaCorrection(newDetail.source, newDetail.id);
+        if (correction) {
+          console.log('换源到小雅源，发现纠错信息，正在应用...', correction);
+          if (correction.title) {
+            finalTitle = correction.title;
+          }
+          if (correction.posterPath) {
+            finalCover = getTMDBImageUrl(correction.posterPath);
+          }
+          if (correction.overview) {
+            finalDesc = correction.overview;
+          }
+          // 应用纠错信息到 newDetail
+          newDetail = applyCorrection(newDetail, correction);
+        }
+      }
+
+      setVideoTitle(finalTitle);
       setVideoYear(newDetail.year);
-      setVideoCover(newDetail.poster);
+      setVideoCover(finalCover);
+      setCorrectedDesc(finalDesc);
       setVideoDoubanId(newDetail.douban_id || 0);
       // newSource 已经是完整格式
       setCurrentSource(newSource);
@@ -3163,6 +3351,18 @@ function PlayPageClient() {
 
       setDanmakuCount(danmakuData.length);
       console.log(`弹幕加载成功，共 ${danmakuData.length} 条`);
+
+      // 更新当前选择状态，包含弹幕数量
+      if (metadata) {
+        setCurrentDanmakuSelection({
+          animeId: metadata.animeId || 0,
+          episodeId: episodeId,
+          animeTitle: metadata.animeTitle || '',
+          episodeTitle: metadata.episodeTitle || '',
+          searchKeyword: metadata.searchKeyword,
+          danmakuCount: danmakuData.length,
+        });
+      }
 
       // 延迟一下让用户看到弹幕数量
       await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -3820,6 +4020,45 @@ function PlayPageClient() {
     }
   };
 
+  // 纠错成功后的回调
+  const handleCorrectSuccess = () => {
+    if (!detail || detail.source !== 'xiaoya') return;
+
+    // 从 localStorage 读取纠错信息
+    const correction = getXiaoyaCorrection(detail.source, detail.id);
+    if (correction) {
+      console.log('应用纠错信息:', correction);
+
+      // 只更新显示相关的状态，不更新 detail（避免触发其他 useEffect）
+      if (correction.title) {
+        setVideoTitle(correction.title);
+      }
+      if (correction.posterPath) {
+        const fullPosterUrl = getTMDBImageUrl(correction.posterPath);
+        setVideoCover(fullPosterUrl);
+      }
+      if (correction.overview) {
+        setCorrectedDesc(correction.overview);
+      }
+      if (correction.doubanId) {
+        const doubanIdNum = typeof correction.doubanId === 'string'
+          ? parseInt(correction.doubanId, 10)
+          : correction.doubanId;
+        setVideoDoubanId(doubanIdNum);
+      }
+
+      // 更新 detailRef，这样其他地方使用 detailRef 时能获取到最新信息
+      if (detailRef.current) {
+        detailRef.current = applyCorrection(detailRef.current, correction);
+      }
+
+      // 更新 availableSources 中的小雅源信息
+      setAvailableSources(prevSources => applyCorrectionsToSources(prevSources));
+
+      console.log('已应用纠错信息');
+    }
+  };
+
   useEffect(() => {
     if (
       !videoUrl ||
@@ -3947,7 +4186,7 @@ function PlayPageClient() {
         Artplayer.USE_RAF = true;
 
         // 获取当前集的字幕
-        const currentSubtitles = detail?.subtitles?.[currentEpisodeIndex] || [];
+        const currentSubtitles = detailRef.current?.subtitles?.[currentEpisodeIndex] || [];
         const savedSubtitleSize = typeof window !== 'undefined' ? localStorage.getItem('subtitleSize') || '2em' : '2em';
 
         artPlayerRef.current = new Artplayer({
@@ -3992,10 +4231,17 @@ function PlayPageClient() {
         fastForward: true,
         autoOrientation: true,
         lock: true,
+        ...(videoQualities.length > 0 ? {
+          quality: videoQualities.map((q, index) => ({
+            default: index === 0,
+            html: q.name,
+            url: q.url,
+          })),
+        } : {}),
         moreVideoAttr: {
-          crossOrigin: 'anonymous',
           playsInline: true,
           'webkit-playsinline': 'true',
+          ...(detail?.source === 'xiaoya' ? { referrerpolicy: 'no-referrer' } : {}),
         } as any,
         // HLS 支持配置
         customType: {
@@ -4901,7 +5147,7 @@ function PlayPageClient() {
         console.log('[PlayPage] Player ready, triggering sync setup');
 
         // 添加字幕切换功能
-        const currentSubtitles = detail?.subtitles?.[currentEpisodeIndex] || [];
+        const currentSubtitles = detailRef.current?.subtitles?.[currentEpisodeIndex] || [];
         if (currentSubtitles.length > 0 && artPlayerRef.current) {
           const subtitleOptions = [
             {
@@ -5824,7 +6070,7 @@ function PlayPageClient() {
 
     // 调用异步初始化函数
     initPlayer();
-  }, [videoUrl, loading, blockAdEnabled, currentEpisodeIndex, detail]);
+  }, [videoUrl, loading, blockAdEnabled, currentEpisodeIndex]);
 
   // 当组件卸载时清理定时器、Wake Lock 和播放器资源
   useEffect(() => {
@@ -6777,6 +7023,19 @@ function PlayPageClient() {
                     <Sparkles className='h-6 w-6 text-gray-700 dark:text-gray-300' />
                   </button>
                 )}
+                {/* 纠错按钮 - 仅小雅源显示 */}
+                {detail && detail.source === 'xiaoya' && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowCorrectDialog(true);
+                    }}
+                    className='flex-shrink-0 hover:opacity-80 transition-opacity'
+                    title='纠错'
+                  >
+                    <AlertCircle className='h-6 w-6 text-gray-700 dark:text-gray-300' />
+                  </button>
+                )}
                 {/* 豆瓣评分显示 */}
                 {doubanRating && doubanRating.value > 0 && (
                   <div className='flex items-center gap-2 text-base font-normal'>
@@ -6857,14 +7116,16 @@ function PlayPageClient() {
                   <span>{doubanYear || detail?.year || videoYear}</span>
                 )}
                 {detail?.source_name && (
-                  <span className='border border-gray-500/60 px-2 py-[1px] rounded'>
+                  <span className={`border px-2 py-[1px] rounded ${
+                    detail.source === 'xiaoya' ? 'border-blue-500' : detail.source === 'openlist' || detail.source === 'emby' || detail.source?.startsWith('emby_') ? 'border-yellow-500' : 'border-gray-500/60'
+                  }`}>
                     {detail.source_name}
                   </span>
                 )}
                 {detail?.type_name && <span>{detail.type_name}</span>}
               </div>
               {/* 剧情简介 */}
-              {(doubanCardSubtitle || detail?.desc) && (
+              {(doubanCardSubtitle || correctedDesc || detail?.desc) && (
                 <div
                   className={`mt-0 text-base leading-relaxed opacity-90 overflow-y-auto pr-2 flex-1 min-h-0 scrollbar-hide ${tmdbBackdrop ? 'text-white' : ''}`}
                   style={{ whiteSpace: 'pre-line' }}
@@ -6875,7 +7136,7 @@ function PlayPageClient() {
                       {doubanCardSubtitle}
                     </div>
                   )}
-                  {detail?.desc}
+                  {correctedDesc || detail?.desc}
                 </div>
               )}
             </div>
@@ -7049,9 +7310,75 @@ function PlayPageClient() {
           welcomeMessage={aiDefaultMessageWithVideo ? aiDefaultMessageWithVideo.replace('{title}', detail.title || '') : `想了解《${detail.title}》的更多信息吗？我可以帮你查询剧情、演员、评价等。`}
         />
       )}
+
+      {/* 纠错弹窗 - 仅小雅源显示 */}
+      {detail && detail.source === 'xiaoya' && (
+        <CorrectDialog
+          isOpen={showCorrectDialog}
+          onClose={() => setShowCorrectDialog(false)}
+          videoKey={`${detail.source}_${detail.id}`}
+          currentTitle={detail.title}
+          currentVideo={{
+            tmdbId: detail.tmdb_id,
+            doubanId: detail.douban_id ? String(detail.douban_id) : undefined,
+            poster: detail.poster,
+            releaseDate: detail.year,
+            overview: detail.desc,
+            voteAverage: detail.rating,
+            mediaType: detail.type_name === '电影' ? 'movie' : 'tv',
+          }}
+          source="xiaoya"
+          onCorrect={() => {
+            // 纠错成功后的回调
+            handleCorrectSuccess();
+          }}
+        />
+      )}
     </PageLayout>
   );
 }
+
+// 从 localStorage 读取小雅源的纠错信息
+const getXiaoyaCorrection = (source: string, id: string) => {
+  try {
+    const storageKey = `xiaoya_correction_${source}_${id}`;
+    const correctionJson = localStorage.getItem(storageKey);
+    if (correctionJson) {
+      return JSON.parse(correctionJson);
+    }
+  } catch (error) {
+    console.error('读取纠错信息失败:', error);
+  }
+  return null;
+};
+
+// 应用纠错信息到 detail 对象
+const applyCorrection = (detail: SearchResult, correction: any): SearchResult => {
+  return {
+    ...detail,
+    title: correction.title || detail.title,
+    poster: correction.posterPath ? getTMDBImageUrl(correction.posterPath) : detail.poster,
+    year: correction.releaseDate || detail.year,
+    desc: correction.overview || detail.desc,
+    rating: correction.voteAverage || detail.rating,
+    tmdb_id: correction.tmdbId || detail.tmdb_id,
+    douban_id: correction.doubanId ? (typeof correction.doubanId === 'string' ? parseInt(correction.doubanId, 10) : correction.doubanId) : detail.douban_id,
+    type_name: correction.mediaType === 'movie' ? '电影' : (correction.mediaType === 'tv' ? '电视剧' : detail.type_name),
+  };
+};
+
+// 批量应用纠错信息到源列表
+const applyCorrectionsToSources = (sources: SearchResult[]): SearchResult[] => {
+  return sources.map(source => {
+    if (source.source === 'xiaoya') {
+      const correction = getXiaoyaCorrection(source.source, source.id);
+      if (correction) {
+        return applyCorrection(source, correction);
+      }
+    }
+    return source;
+  });
+};
 
 // FavoriteIcon 组件
 const FavoriteIcon = ({ filled }: { filled: boolean }) => {

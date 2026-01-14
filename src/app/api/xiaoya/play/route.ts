@@ -1,10 +1,10 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
-import { OpenListClient } from '@/lib/openlist.client';
+import { XiaoyaClient } from '@/lib/xiaoya.client';
 
 export const runtime = 'nodejs';
 
@@ -49,7 +49,7 @@ async function getFinalUrl(url: string, maxRedirects = 5): Promise<string> {
         return currentUrl;
       }
     } catch (error) {
-      console.error('[openlist/play] 获取最终 URL 失败:', error);
+      console.error('[xiaoya/play] 获取最终 URL 失败:', error);
       return currentUrl;
     }
   }
@@ -58,8 +58,9 @@ async function getFinalUrl(url: string, maxRedirects = 5): Promise<string> {
 }
 
 /**
- * GET /api/openlist/play?folder=xxx&fileName=xxx&format=json
- * 获取单个视频文件的播放链接（优先使用视频预览流，失败时降级到直连）
+ * GET /api/xiaoya/play?path=<path>&format=json
+ * 获取小雅视频的播放链接（优先使用视频预览流，失败时降级到直连）
+ * path参数为base58编码的路径
  * format=json: 返回 JSON 格式（用于 play 页面）
  * 默认: 返回重定向（用于 tvbox 等）
  */
@@ -71,40 +72,61 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const folderName = searchParams.get('folder');
-    const fileName = searchParams.get('fileName');
+    const encodedPath = searchParams.get('path');
     const format = searchParams.get('format'); // 新增 format 参数
 
-    if (!folderName || !fileName) {
+    if (!encodedPath) {
       return NextResponse.json({ error: '缺少参数' }, { status: 400 });
     }
 
+    // 对path进行base58解码
+    const { base58Decode } = await import('@/lib/utils');
+    const path = base58Decode(encodedPath);
+
     const config = await getConfig();
-    const openListConfig = config.OpenListConfig;
+    const xiaoyaConfig = config.XiaoyaConfig;
 
     if (
-      !openListConfig ||
-      !openListConfig.Enabled ||
-      !openListConfig.URL ||
-      !openListConfig.Username ||
-      !openListConfig.Password
+      !xiaoyaConfig ||
+      !xiaoyaConfig.Enabled ||
+      !xiaoyaConfig.ServerURL
     ) {
-      return NextResponse.json({ error: 'OpenList 未配置或未启用' }, { status: 400 });
+      return NextResponse.json({ error: '小雅未配置或未启用' }, { status: 400 });
     }
 
-    // folderName 已经是完整路径，直接使用
-    const folderPath = folderName;
-    const filePath = `${folderPath}/${fileName}`;
-
-    const client = new OpenListClient(
-      openListConfig.URL,
-      openListConfig.Username,
-      openListConfig.Password
+    const client = new XiaoyaClient(
+      xiaoyaConfig.ServerURL,
+      xiaoyaConfig.Username,
+      xiaoyaConfig.Password,
+      xiaoyaConfig.Token
     );
 
     // 优先尝试视频预览流方法
     try {
-      const data = await client.getVideoPreview(filePath);
+      const token = await client.getToken();
+
+      const response = await fetch(`${xiaoyaConfig.ServerURL}/api/fs/other`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token,
+        },
+        body: JSON.stringify({
+          path: path,
+          method: 'video_preview',
+          password: '',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`视频预览请求失败: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.code !== 200) {
+        throw new Error(`视频预览失败: ${data.message}`);
+      }
 
       const taskList = data.data?.video_preview_play_info?.live_transcoding_task_list;
       if (!taskList || taskList.length === 0) {
@@ -115,11 +137,11 @@ export async function GET(request: NextRequest) {
         'FHD': 1,
         'HD': 2,
         'LD': 3,
-        'SD': 4,
+		'SD': 4,
       };
 
       const qualities = taskList
-        .filter((task: any) => task.status === 'finished')
+	    .filter((task: any) => task.status === 'finished')
         .map((task: any) => ({
           name: task.template_id,
           url: task.url,
@@ -142,35 +164,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(qualities[0].url);
     } catch (error) {
       // 视频预览流失败，降级到直连方法
-      console.log('[openlist/play] 视频预览流失败，降级到直连方法:', (error as Error).message);
+      console.log('[xiaoya/play] 视频预览流失败，降级到直连方法:', (error as Error).message);
 
-      const fileResponse = await client.getFile(filePath);
-
-      if (fileResponse.code !== 200 || !fileResponse.data.raw_url) {
-        console.error('[OpenList Play] 获取播放URL失败:', {
-          fileName,
-          code: fileResponse.code,
-          message: fileResponse.message,
-        });
-        return NextResponse.json(
-          { error: '获取播放链接失败' },
-          { status: 500 }
-        );
-      }
+      const playUrl = await client.getDownloadUrl(path);
 
       // 如果指定了 format=json，使用 getFinalUrl 并返回 JSON
       if (format === 'json') {
-        const finalUrl = await getFinalUrl(fileResponse.data.raw_url);
+        const finalUrl = await getFinalUrl(playUrl);
         return NextResponse.json({ url: finalUrl });
       }
 
       // 默认返回重定向（用于 tvbox）
-      return NextResponse.redirect(fileResponse.data.raw_url);
+      return NextResponse.redirect(playUrl);
     }
   } catch (error) {
-    console.error('获取播放链接失败:', error);
     return NextResponse.json(
-      { error: '获取失败', details: (error as Error).message },
+      { error: (error as Error).message },
       { status: 500 }
     );
   }

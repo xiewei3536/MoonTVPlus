@@ -659,6 +659,7 @@ export abstract class BaseRedisStorage implements IStorage {
     playrecord_migrated?: boolean;
     favorite_migrated?: boolean;
     skip_migrated?: boolean;
+    last_movie_request_time?: number;
   } | null> {
     const userInfo = await this.withRetry(() =>
       this.client.hGetAll(this.userInfoKey(userName))
@@ -678,6 +679,7 @@ export abstract class BaseRedisStorage implements IStorage {
       playrecord_migrated: userInfo.playrecord_migrated === 'true',
       favorite_migrated: userInfo.favorite_migrated === 'true',
       skip_migrated: userInfo.skip_migrated === 'true',
+      last_movie_request_time: userInfo.last_movie_request_time ? parseInt(userInfo.last_movie_request_time, 10) : undefined,
     };
   }
 
@@ -1239,5 +1241,53 @@ export abstract class BaseRedisStorage implements IStorage {
     await this.withRetry(() =>
       this.client.set(this.lastFavoriteCheckKey(userName), timestamp.toString())
     );
+  }
+
+  // ---------- 求片相关 ----------
+  private movieRequestsKey() {
+    return 'movie_requests:all';
+  }
+
+  private userMovieRequestsKey(userName: string) {
+    return `u:${userName}:mr`;
+  }
+
+  async getAllMovieRequests(): Promise<import('./types').MovieRequest[]> {
+    const data = await this.withRetry(() => this.client.hGetAll(this.movieRequestsKey()));
+    if (!data || Object.keys(data).length === 0) return [];
+    return Object.values(data).map(v => JSON.parse(v) as import('./types').MovieRequest);
+  }
+
+  async getMovieRequest(requestId: string): Promise<import('./types').MovieRequest | null> {
+    const val = await this.withRetry(() => this.client.hGet(this.movieRequestsKey(), requestId));
+    return val ? (JSON.parse(val) as import('./types').MovieRequest) : null;
+  }
+
+  async createMovieRequest(request: import('./types').MovieRequest): Promise<void> {
+    await this.withRetry(() => this.client.hSet(this.movieRequestsKey(), request.id, JSON.stringify(request)));
+  }
+
+  async updateMovieRequest(requestId: string, updates: Partial<import('./types').MovieRequest>): Promise<void> {
+    const existing = await this.getMovieRequest(requestId);
+    if (!existing) throw new Error('Movie request not found');
+    const updated = { ...existing, ...updates };
+    await this.withRetry(() => this.client.hSet(this.movieRequestsKey(), requestId, JSON.stringify(updated)));
+  }
+
+  async deleteMovieRequest(requestId: string): Promise<void> {
+    await this.withRetry(() => this.client.hDel(this.movieRequestsKey(), requestId));
+  }
+
+  async getUserMovieRequests(userName: string): Promise<string[]> {
+    const val = await this.withRetry(() => this.client.sMembers(this.userMovieRequestsKey(userName)));
+    return val ? ensureStringArray(val) : [];
+  }
+
+  async addUserMovieRequest(userName: string, requestId: string): Promise<void> {
+    await this.withRetry(() => this.client.sAdd(this.userMovieRequestsKey(userName), requestId));
+  }
+
+  async removeUserMovieRequest(userName: string, requestId: string): Promise<void> {
+    await this.withRetry(() => this.client.sRem(this.userMovieRequestsKey(userName), requestId));
   }
 }

@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
   const id = searchParams.get('id');
   const sourceCode = searchParams.get('source');
   const title = searchParams.get('title'); // 用于搜索的标题
+  const fileName = searchParams.get('fileName'); // 小雅源：用户点击的文件名
 
   if (!id || !sourceCode || !title) {
     return NextResponse.json({ error: '缺少必要参数' }, { status: 400 });
@@ -124,6 +125,102 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 特殊处理 xiaoya 源
+  if (sourceCode === 'xiaoya') {
+    try {
+      const config = await getConfig();
+      const xiaoyaConfig = config.XiaoyaConfig;
+
+      if (
+        !xiaoyaConfig ||
+        !xiaoyaConfig.Enabled ||
+        !xiaoyaConfig.ServerURL
+      ) {
+        throw new Error('小雅未配置或未启用');
+      }
+
+      const { XiaoyaClient } = await import('@/lib/xiaoya.client');
+      const { getXiaoyaMetadata, getXiaoyaEpisodes } = await import('@/lib/xiaoya-metadata');
+      const { base58Decode, base58Encode } = await import('@/lib/utils');
+
+      const client = new XiaoyaClient(
+        xiaoyaConfig.ServerURL,
+        xiaoyaConfig.Username,
+        xiaoyaConfig.Password,
+        xiaoyaConfig.Token
+      );
+
+      // 对id进行base58解码得到目录路径
+      let decodedDirPath: string;
+      try {
+        decodedDirPath = base58Decode(id);
+        console.log('[xiaoya] 解码目录路径:', decodedDirPath);
+      } catch (decodeError) {
+        console.error('[xiaoya] Base58解码失败:', decodeError);
+        throw new Error('无效的视频ID');
+      }
+
+      // 验证解码后的路径
+      if (!decodedDirPath || decodedDirPath.trim() === '') {
+        throw new Error('解码后的路径为空');
+      }
+
+      // 如果有fileName参数，拼接完整文件路径
+      let clickedFilePath: string | undefined;
+      if (fileName) {
+        // 拼接目录路径和文件名
+        clickedFilePath = `${decodedDirPath}${decodedDirPath.endsWith('/') ? '' : '/'}${fileName}`;
+        console.log('[xiaoya] 用户点击的文件路径:', clickedFilePath);
+      }
+
+      // 获取元数据（使用目录路径或点击的文件路径）
+      const metadataPath = clickedFilePath || decodedDirPath;
+      const metadata = await getXiaoyaMetadata(
+        client,
+        metadataPath,
+        config.SiteConfig.TMDBApiKey,
+        config.SiteConfig.TMDBProxy
+      );
+
+      // 获取集数列表（使用目录路径或点击的文件路径）
+      const episodes = await getXiaoyaEpisodes(client, metadataPath);
+
+      // 如果有点击的文件路径，找到对应的集数索引
+      let clickedFileIndex = -1;
+      if (clickedFilePath) {
+        clickedFileIndex = episodes.findIndex(ep => ep.path === clickedFilePath);
+        console.log('[xiaoya] 文件在集数列表中的索引:', clickedFileIndex);
+      }
+
+      const result = {
+        source: 'xiaoya',
+        source_name: '小雅',
+        id: id, // 保持编码后的目录id
+        title: metadata.title,
+        poster: metadata.poster || '',
+        year: metadata.year || '',
+        douban_id: 0,
+        desc: metadata.plot || '',
+        episodes: episodes.map(ep => `/api/xiaoya/play?path=${encodeURIComponent(base58Encode(ep.path))}`),
+        episodes_titles: episodes.map(ep => ep.title),
+        subtitles: [],
+        proxyMode: false,
+        // 返回用户点击的文件索引（如果找到的话）
+        initialEpisodeIndex: clickedFileIndex >= 0 ? clickedFileIndex : undefined,
+        // 返回元数据来源
+        metadataSource: metadata.source,
+      };
+
+      return NextResponse.json(result);
+    } catch (error) {
+      console.error('[xiaoya] 获取详情失败:', error);
+      return NextResponse.json(
+        { error: (error as Error).message },
+        { status: 500 }
+      );
+    }
+  }
+
   // 特殊处理 openlist 源 - 直接调用 /api/detail
   if (sourceCode === 'openlist') {
     try {
@@ -149,13 +246,13 @@ export async function GET(request: NextRequest) {
         const { getCachedMetaInfo, setCachedMetaInfo } = await import('@/lib/openlist-cache');
         const { db } = await import('@/lib/db');
 
-        metaInfo = getCachedMetaInfo(rootPath);
+        metaInfo = getCachedMetaInfo();
 
         if (!metaInfo) {
           const metainfoJson = await db.getGlobalValue('video.metainfo');
           if (metainfoJson) {
             metaInfo = JSON.parse(metainfoJson);
-            setCachedMetaInfo(rootPath, metaInfo);
+            setCachedMetaInfo(metaInfo);
           }
         }
 

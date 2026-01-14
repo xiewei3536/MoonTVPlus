@@ -4,12 +4,14 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useRef, useMemo } from 'react';
+import { Film } from 'lucide-react';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
+import { base58Encode } from '@/lib/utils';
 
-type LibrarySourceType = 'openlist' | 'emby' | `emby:${string}` | `emby_${string}`;
+type LibrarySourceType = 'openlist' | 'emby' | 'xiaoya' | `emby:${string}` | `emby_${string}`;
 
 interface EmbySourceOption {
   key: string;
@@ -45,7 +47,7 @@ export default function PrivateLibraryPage() {
     if (typeof window !== 'undefined' && (window as any).RUNTIME_CONFIG) {
       return (window as any).RUNTIME_CONFIG;
     }
-    return { OPENLIST_ENABLED: false, EMBY_ENABLED: false };
+    return { OPENLIST_ENABLED: false, EMBY_ENABLED: false, XIAOYA_ENABLED: false };
   }, []);
 
   // 解析URL中的source参数（支持 emby:emby1 格式）
@@ -72,6 +74,14 @@ export default function PrivateLibraryPage() {
   const [embyViews, setEmbyViews] = useState<EmbyView[]>([]);
   const [selectedView, setSelectedView] = useState<string>('all');
   const [loadingViews, setLoadingViews] = useState(false);
+  // 小雅相关状态
+  const [xiaoyaPath, setXiaoyaPath] = useState<string>('/');
+  const [xiaoyaFolders, setXiaoyaFolders] = useState<Array<{ name: string; path: string }>>([]);
+  const [xiaoyaFiles, setXiaoyaFiles] = useState<Array<{ name: string; path: string }>>([]);
+  const [xiaoyaSearchKeyword, setXiaoyaSearchKeyword] = useState<string>('');
+  const [xiaoyaSearchResults, setXiaoyaSearchResults] = useState<Array<{ name: string; path: string }>>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const pageSize = 20;
   const observerTarget = useRef<HTMLDivElement>(null);
   const isFetchingRef = useRef(false);
@@ -83,6 +93,38 @@ export default function PrivateLibraryPage() {
   const scrollLeftRef = useRef(0);
   const isInitializedRef = useRef(false);
   const hasRestoredViewRef = useRef(false);
+
+  // 客户端挂载标记
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // 小雅搜索处理函数
+  const handleXiaoyaSearch = async () => {
+    if (!xiaoyaSearchKeyword.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const response = await fetch(`/api/xiaoya/search?keyword=${encodeURIComponent(xiaoyaSearchKeyword)}`);
+      if (!response.ok) {
+        throw new Error('搜索失败');
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+        setXiaoyaSearchResults([]);
+      } else {
+        setXiaoyaSearchResults(data.videos || []);
+      }
+    } catch (err) {
+      console.error('搜索失败:', err);
+      setError('搜索失败');
+      setXiaoyaSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   // 从URL初始化状态，并检查配置自动跳转
   useEffect(() => {
@@ -270,6 +312,12 @@ export default function PrivateLibraryPage() {
         return;
       }
 
+      // 如果选择了 xiaoya 但未配置，不发起请求
+      if (sourceType === 'xiaoya' && !runtimeConfig.XIAOYA_ENABLED) {
+        setLoading(false);
+        return;
+      }
+
       // 创建新的 AbortController
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
@@ -285,6 +333,8 @@ export default function PrivateLibraryPage() {
 
         const endpoint = sourceType === 'openlist'
           ? `/api/openlist/list?page=${page}&pageSize=${pageSize}`
+          : sourceType === 'xiaoya'
+          ? `/api/xiaoya/browse?path=${encodeURIComponent(xiaoyaPath)}`
           : `/api/emby/list?page=${page}&pageSize=${pageSize}${selectedView !== 'all' ? `&parentId=${selectedView}` : ''}&embyKey=${embyKey}`;
 
         const response = await fetch(endpoint, { signal: abortController.signal });
@@ -301,19 +351,27 @@ export default function PrivateLibraryPage() {
             setVideos([]);
           }
         } else {
-          const newVideos = data.list || [];
-
-          if (isInitial) {
-            setVideos(newVideos);
+          // 小雅返回的是文件夹和文件列表
+          if (sourceType === 'xiaoya') {
+            setXiaoyaFolders(data.folders || []);
+            setXiaoyaFiles(data.files || []);
+            setVideos([]); // 小雅不使用 videos 状态
+            setHasMore(false); // 小雅不需要分页
           } else {
-            setVideos((prev) => [...prev, ...newVideos]);
-          }
+            const newVideos = data.list || [];
 
-          // 检查是否还有更多数据
-          const currentPage = data.page || page;
-          const totalPages = data.totalPages || 1;
-          const hasMoreData = currentPage < totalPages;
-          setHasMore(hasMoreData);
+            if (isInitial) {
+              setVideos(newVideos);
+            } else {
+              setVideos((prev) => [...prev, ...newVideos]);
+            }
+
+            // 检查是否还有更多数据
+            const currentPage = data.page || page;
+            const totalPages = data.totalPages || 1;
+            const hasMoreData = currentPage < totalPages;
+            setHasMore(hasMoreData);
+          }
         }
       } catch (err: any) {
         // 忽略取消请求的错误
@@ -346,7 +404,7 @@ export default function PrivateLibraryPage() {
         abortControllerRef.current.abort();
       }
     };
-  }, [sourceType, embyKey, page, selectedView, runtimeConfig]);
+  }, [sourceType, embyKey, page, selectedView, xiaoyaPath, runtimeConfig]);
 
   const handleVideoClick = (video: Video) => {
     // 构建source参数
@@ -390,26 +448,40 @@ export default function PrivateLibraryPage() {
   return (
     <PageLayout activePath='/private-library'>
       <div className='container mx-auto px-4 py-6'>
-        <div className='mb-6'>
-          <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
-            私人影库
-          </h1>
-          <p className='text-sm text-gray-500 dark:text-gray-400 mt-1'>
-            观看自我收藏的高清视频吧
-          </p>
+        <div className='mb-6 flex justify-between items-start'>
+          <div>
+            <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
+              私人影库
+            </h1>
+            <p className='text-sm text-gray-500 dark:text-gray-400 mt-1'>
+              观看自我收藏的高清视频吧
+            </p>
+          </div>
+          {mounted && (
+            <button
+              onClick={() => router.push('/movie-request')}
+              className='flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors'
+            >
+              <Film size={20} />
+              <span>求片</span>
+            </button>
+          )}
         </div>
 
-        {/* 第一级：源类型选择（OpenList / Emby） */}
-        <div className='mb-6 flex justify-center'>
-          <CapsuleSwitch
-            options={[
-              { label: 'OpenList', value: 'openlist' },
-              { label: 'Emby', value: 'emby' },
-            ]}
-            active={sourceType}
-            onChange={(value) => setSourceType(value as LibrarySourceType)}
-          />
-        </div>
+        {/* 第一级：源类型选择（OpenList / Emby / 小雅） */}
+        {mounted && (
+          <div className='mb-6 flex justify-center'>
+            <CapsuleSwitch
+              options={[
+                ...(runtimeConfig.OPENLIST_ENABLED ? [{ label: 'OpenList', value: 'openlist' }] : []),
+                ...(runtimeConfig.EMBY_ENABLED ? [{ label: 'Emby', value: 'emby' }] : []),
+                ...(runtimeConfig.XIAOYA_ENABLED ? [{ label: '小雅', value: 'xiaoya' }] : []),
+              ]}
+              active={sourceType}
+              onChange={(value) => setSourceType(value as LibrarySourceType)}
+            />
+          </div>
+        )}
 
         {/* 第二级：Emby源选择（仅当选择Emby且有多个源时显示） */}
         {sourceType === 'emby' && embySourceOptions.length > 1 && (
@@ -527,13 +599,241 @@ export default function PrivateLibraryPage() {
         )}
 
         {loading ? (
-          <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
-            {Array.from({ length: pageSize }).map((_, index) => (
-              <div
-                key={index}
-                className='animate-pulse bg-gray-200 dark:bg-gray-700 rounded-lg aspect-[2/3]'
-              />
-            ))}
+          sourceType === 'xiaoya' ? (
+            // 小雅加载骨架屏 - 文件夹列表样式
+            <div className='space-y-4'>
+              {/* 文件夹骨架屏 */}
+              <div className='space-y-2'>
+                <div className='h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse' />
+                <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2'>
+                  {Array.from({ length: 12 }).map((_, index) => (
+                    <div
+                      key={index}
+                      className='h-12 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse'
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            // OpenList/Emby 加载骨架屏 - 海报卡片样式
+            <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4'>
+              {Array.from({ length: pageSize }).map((_, index) => (
+                <div
+                  key={index}
+                  className='animate-pulse bg-gray-200 dark:bg-gray-700 rounded-lg aspect-[2/3]'
+                />
+              ))}
+            </div>
+          )
+        ) : sourceType === 'xiaoya' ? (
+          // 小雅浏览模式
+          <div className='space-y-4'>
+            {/* 搜索框 */}
+            <div className='flex justify-center md:justify-end'>
+              <div className='relative w-full max-w-md'>
+                <input
+                  type='text'
+                  placeholder='搜索视频...'
+                  value={xiaoyaSearchKeyword}
+                  onChange={(e) => setXiaoyaSearchKeyword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && xiaoyaSearchKeyword.trim()) {
+                      handleXiaoyaSearch();
+                    }
+                  }}
+                  className='w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500'
+                />
+                {xiaoyaSearchKeyword ? (
+                  <button
+                    onClick={() => {
+                      setXiaoyaSearchKeyword('');
+                      setXiaoyaSearchResults([]);
+                    }}
+                    className='absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                  >
+                    <svg className='w-5 h-5' fill='currentColor' viewBox='0 0 20 20'>
+                      <path fillRule='evenodd' d='M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z' clipRule='evenodd' />
+                    </svg>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleXiaoyaSearch}
+                    disabled={!xiaoyaSearchKeyword.trim() || isSearching}
+                    className='absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed'
+                  >
+                    <svg className='w-5 h-5' fill='currentColor' viewBox='0 0 20 20'>
+                      <path fillRule='evenodd' d='M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z' clipRule='evenodd' />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 搜索结果 */}
+            {xiaoyaSearchResults.length > 0 ? (
+              <div className='space-y-2'>
+                <div className='flex items-center justify-between'>
+                  <h3 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                    搜索结果 ({xiaoyaSearchResults.length})
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setXiaoyaSearchKeyword('');
+                      setXiaoyaSearchResults([]);
+                    }}
+                    className='text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300'
+                  >
+                    返回浏览
+                  </button>
+                </div>
+                <div className='grid grid-cols-1 gap-2'>
+                  {xiaoyaSearchResults.map((item) => {
+                    // 判断是否为视频文件
+                    const videoExtensions = ['.mp4', '.mkv', '.avi', '.m3u8', '.flv', '.ts', '.mov', '.wmv', '.webm'];
+                    const isVideoFile = videoExtensions.some(ext => item.name.toLowerCase().endsWith(ext));
+
+                    // 从路径中提取文件夹名作为标题
+                    const pathParts = item.path.split('/').filter(Boolean);
+                    const folderName = pathParts[pathParts.length - (isVideoFile ? 2 : 1)] || '';
+                    const title = folderName
+                      .replace(/\s*\(\d{4}\)\s*\{tmdb-\d+\}$/i, '')
+                      .trim() || item.name;
+
+                    return (
+                      <button
+                        key={item.path}
+                        onClick={() => {
+                          if (isVideoFile) {
+                            // 视频文件：提取父目录作为ID，传递文件名
+                            const pathParts = item.path.split('/').filter(Boolean);
+                            const parentDir = '/' + pathParts.slice(0, -1).join('/');
+                            const fileName = pathParts[pathParts.length - 1];
+                            const encodedDirPath = base58Encode(parentDir);
+                            router.push(`/play?source=xiaoya&id=${encodeURIComponent(encodedDirPath)}&fileName=${encodeURIComponent(fileName)}&title=${encodeURIComponent(title)}`);
+                          } else {
+                            // 文件夹：进入浏览
+                            setXiaoyaPath(item.path);
+                            setXiaoyaSearchKeyword('');
+                            setXiaoyaSearchResults([]);
+                          }
+                        }}
+                        className='flex items-center gap-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-left'
+                      >
+                        {isVideoFile ? (
+                          <svg className='w-5 h-5 text-green-600 flex-shrink-0' fill='currentColor' viewBox='0 0 20 20'>
+                            <path d='M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z' />
+                          </svg>
+                        ) : (
+                          <svg className='w-5 h-5 text-blue-600 flex-shrink-0' fill='currentColor' viewBox='0 0 20 20'>
+                            <path d='M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z' />
+                          </svg>
+                        )}
+                        <div className='flex-1 min-w-0'>
+                          <div className='text-sm truncate'>{item.name}</div>
+                          <div className='text-xs text-gray-500 dark:text-gray-400 truncate'>{item.path}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : isSearching ? (
+              <div className='flex justify-center py-8'>
+                <div className='flex items-center gap-2 text-gray-600 dark:text-gray-400'>
+                  <div className='w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin' />
+                  <span>搜索中...</span>
+                </div>
+              </div>
+            ) : (
+              <>
+            {/* 面包屑导航 */}
+            <div className='flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400'>
+              <button
+                onClick={() => setXiaoyaPath('/')}
+                className='hover:text-blue-600 dark:hover:text-blue-400'
+              >
+                根目录
+              </button>
+              {xiaoyaPath.split('/').filter(Boolean).map((part, index, arr) => {
+                const path = '/' + arr.slice(0, index + 1).join('/');
+                return (
+                  <span key={path} className='flex items-center gap-2'>
+                    <span>/</span>
+                    <button
+                      onClick={() => setXiaoyaPath(path)}
+                      className='hover:text-blue-600 dark:hover:text-blue-400'
+                    >
+                      {part}
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+
+            {/* 文件夹列表 */}
+            {xiaoyaFolders.length > 0 && (
+              <div className='space-y-2'>
+                <h3 className='text-sm font-medium text-gray-700 dark:text-gray-300'>文件夹</h3>
+                <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2'>
+                  {xiaoyaFolders.map((folder) => (
+                    <button
+                      key={folder.path}
+                      onClick={() => setXiaoyaPath(folder.path)}
+                      className='flex items-center gap-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-left'
+                    >
+                      <svg className='w-5 h-5 text-blue-600' fill='currentColor' viewBox='0 0 20 20'>
+                        <path d='M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z' />
+                      </svg>
+                      <span className='text-sm truncate'>{folder.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 视频文件列表 */}
+            {xiaoyaFiles.length > 0 && (
+              <div className='space-y-2'>
+                <h3 className='text-sm font-medium text-gray-700 dark:text-gray-300'>视频文件</h3>
+                <div className='grid grid-cols-1 gap-2'>
+                  {xiaoyaFiles.map((file) => {
+                    // 从当前路径提取文件夹名作为标题
+                    const pathParts = xiaoyaPath.split('/').filter(Boolean);
+                    const folderName = pathParts[pathParts.length - 1] || '';
+                    // 清理文件夹名（移除年份和 TMDb ID）
+                    const title = folderName
+                      .replace(/\s*\(\d{4}\)\s*\{tmdb-\d+\}$/i, '')
+                      .trim() || file.name;
+
+                    return (
+                      <button
+                        key={file.path}
+                        onClick={() => {
+                          // ID使用目录路径，额外传递文件名（不需要编码）
+                          const encodedDirPath = base58Encode(xiaoyaPath);
+                          router.push(`/play?source=xiaoya&id=${encodeURIComponent(encodedDirPath)}&fileName=${encodeURIComponent(file.name)}&title=${encodeURIComponent(title)}`);
+                        }}
+                        className='flex items-center gap-2 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors text-left'
+                      >
+                        <svg className='w-5 h-5 text-green-600' fill='currentColor' viewBox='0 0 20 20'>
+                          <path d='M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z' />
+                        </svg>
+                        <span className='text-sm truncate'>{file.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {xiaoyaFolders.length === 0 && xiaoyaFiles.length === 0 && (
+              <div className='text-center py-12'>
+                <p className='text-gray-500 dark:text-gray-400'>此目录为空</p>
+              </div>
+            )}
+              </>
+            )}
           </div>
         ) : videos.length === 0 ? (
           <div className='text-center py-12'>

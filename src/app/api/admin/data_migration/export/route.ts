@@ -155,8 +155,8 @@ async function getUserPasswordV2(username: string): Promise<string | null> {
     // 直接调用hGetAll获取完整用户信息（包括密码）
     const userInfoKey = `user:${username}:info`;
 
-    if (typeof storage.withRetry === 'function' && storage.client?.hGetAll) {
-      const userInfo = await storage.withRetry(() => storage.client.hGetAll(userInfoKey));
+    if (typeof storage.withRetry === 'function' && storage.client?.hgetall) {
+      const userInfo = await storage.withRetry(() => storage.client.hgetall(userInfoKey));
       if (userInfo && userInfo.password) {
         return userInfo.password;
       }

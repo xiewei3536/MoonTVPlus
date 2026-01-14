@@ -390,6 +390,7 @@ interface CollapsibleTabProps {
   isExpanded: boolean;
   onToggle: () => void;
   children: React.ReactNode;
+  isParent?: boolean;
 }
 
 const CollapsibleTab = ({
@@ -398,25 +399,38 @@ const CollapsibleTab = ({
   isExpanded,
   onToggle,
   children,
+  isParent = false,
 }: CollapsibleTabProps) => {
   return (
-    <div className='rounded-xl shadow-sm mb-4 overflow-hidden bg-white/80 backdrop-blur-md dark:bg-gray-800/50 dark:ring-1 dark:ring-gray-700'>
+    <div className={`rounded-xl shadow-sm mb-4 overflow-hidden ${
+      isParent
+        ? 'bg-gradient-to-r from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20 ring-2 ring-yellow-400/50 dark:ring-yellow-600/50'
+        : 'bg-white/80 backdrop-blur-md dark:bg-gray-800/50 dark:ring-1 dark:ring-gray-700'
+    }`}>
       <button
         onClick={onToggle}
-        className='w-full px-6 py-4 flex items-center justify-between bg-gray-50/70 dark:bg-gray-800/60 hover:bg-gray-100/80 dark:hover:bg-gray-700/60 transition-colors'
+        className={`w-full px-6 py-4 flex items-center justify-between transition-colors ${
+          isParent
+            ? 'bg-yellow-100/50 dark:bg-yellow-900/30 hover:bg-yellow-100/70 dark:hover:bg-yellow-900/40'
+            : 'bg-gray-50/70 dark:bg-gray-800/60 hover:bg-gray-100/80 dark:hover:bg-gray-700/60'
+        }`}
       >
         <div className='flex items-center gap-3'>
           {icon}
-          <h3 className='text-lg font-medium text-gray-900 dark:text-gray-100'>
+          <h3 className={`text-lg font-medium ${
+            isParent
+              ? 'text-yellow-900 dark:text-yellow-200'
+              : 'text-gray-900 dark:text-gray-100'
+          }`}>
             {title}
           </h3>
         </div>
-        <div className='text-gray-500 dark:text-gray-400'>
+        <div className={isParent ? 'text-yellow-700 dark:text-yellow-400' : 'text-gray-500 dark:text-gray-400'}>
           {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
         </div>
       </button>
 
-      {isExpanded && <div className='px-6 py-4'>{children}</div>}
+      {isExpanded && <div className={isParent ? 'px-0.5 md:px-6 py-4' : 'px-6 py-4'}>{children}</div>}
     </div>
   );
 };
@@ -2763,7 +2777,7 @@ const OpenListConfigComponent = ({
   const [url, setUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [rootPath, setRootPath] = useState('/');
+  const [rootPaths, setRootPaths] = useState<string[]>(['/']);
   const [offlineDownloadPath, setOfflineDownloadPath] = useState('/');
   const [scanInterval, setScanInterval] = useState(0);
   const [scanMode, setScanMode] = useState<'torrent' | 'name' | 'hybrid'>('hybrid');
@@ -2783,7 +2797,7 @@ const OpenListConfigComponent = ({
       setUrl(config.OpenListConfig.URL || '');
       setUsername(config.OpenListConfig.Username || '');
       setPassword(config.OpenListConfig.Password || '');
-      setRootPath(config.OpenListConfig.RootPath || '/');
+      setRootPaths(config.OpenListConfig.RootPaths || (config.OpenListConfig.RootPath ? [config.OpenListConfig.RootPath] : ['/']));
       setOfflineDownloadPath(config.OpenListConfig.OfflineDownloadPath || '/');
       setScanInterval(config.OpenListConfig.ScanInterval || 0);
       setScanMode(config.OpenListConfig.ScanMode || 'hybrid');
@@ -2824,7 +2838,7 @@ const OpenListConfigComponent = ({
             URL: url,
             Username: username,
             Password: password,
-            RootPath: rootPath,
+            RootPaths: rootPaths,
             OfflineDownloadPath: offlineDownloadPath,
             ScanInterval: scanInterval,
             ScanMode: scanMode,
@@ -3104,18 +3118,49 @@ const OpenListConfigComponent = ({
 
         <div>
           <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-            根目录
+            根目录列表
           </label>
-          <input
-            type='text'
-            value={rootPath}
-            onChange={(e) => setRootPath(e.target.value)}
-            disabled={!enabled}
-            placeholder='/'
-            className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed'
-          />
+          <div className='space-y-2'>
+            {rootPaths.map((path, index) => (
+              <div key={index} className='flex gap-2'>
+                <input
+                  type='text'
+                  value={path}
+                  onChange={(e) => {
+                    const newPaths = [...rootPaths];
+                    newPaths[index] = e.target.value;
+                    setRootPaths(newPaths);
+                  }}
+                  disabled={!enabled}
+                  placeholder='/'
+                  className='flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed'
+                />
+                {rootPaths.length > 1 && (
+                  <button
+                    type='button'
+                    onClick={() => {
+                      const newPaths = rootPaths.filter((_, i) => i !== index);
+                      setRootPaths(newPaths);
+                    }}
+                    disabled={!enabled}
+                    className='px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed'
+                  >
+                    删除
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type='button'
+              onClick={() => setRootPaths([...rootPaths, '/'])}
+              disabled={!enabled}
+              className='w-full px-3 py-2 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:border-blue-500 hover:text-blue-500 disabled:opacity-50 disabled:cursor-not-allowed'
+            >
+              + 添加根目录
+            </button>
+          </div>
           <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-            OpenList 中的视频文件夹路径，默认为根目录 /
+            OpenList 中的视频文件夹路径，可以配置多个根目录
           </p>
         </div>
 
@@ -3414,6 +3459,7 @@ const EmbyConfigComponent = ({
   const [sources, setSources] = useState<any[]>([]);
   const [editingSource, setEditingSource] = useState<any | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
 
   // 表单状态
   const [formData, setFormData] = useState({
@@ -3663,6 +3709,81 @@ const EmbyConfigComponent = ({
     });
   };
 
+  // 批量启用
+  const handleBatchEnable = async () => {
+    if (selectedSources.size === 0) return;
+    await withLoading('batchEnableEmby', async () => {
+      try {
+        const newSources = sources.map(s =>
+          selectedSources.has(s.key) ? { ...s, enabled: true } : s
+        );
+        const response = await fetch('/api/admin/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...config, EmbyConfig: { Sources: newSources } }),
+        });
+        if (!response.ok) throw new Error('批量启用失败');
+        await refreshConfig();
+        setSelectedSources(new Set());
+        showSuccess(`已启用 ${selectedSources.size} 个源`, showAlert);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '批量启用失败', showAlert);
+      }
+    });
+  };
+
+  // 批量禁用
+  const handleBatchDisable = async () => {
+    if (selectedSources.size === 0) return;
+    await withLoading('batchDisableEmby', async () => {
+      try {
+        const newSources = sources.map(s =>
+          selectedSources.has(s.key) ? { ...s, enabled: false } : s
+        );
+        const response = await fetch('/api/admin/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...config, EmbyConfig: { Sources: newSources } }),
+        });
+        if (!response.ok) throw new Error('批量禁用失败');
+        await refreshConfig();
+        setSelectedSources(new Set());
+        showSuccess(`已禁用 ${selectedSources.size} 个源`, showAlert);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '批量禁用失败', showAlert);
+      }
+    });
+  };
+
+  // 批量删除
+  const handleBatchDelete = async () => {
+    if (selectedSources.size === 0) return;
+    showAlert({
+      type: 'warning',
+      title: '确认批量删除',
+      message: `确定要删除选中的 ${selectedSources.size} 个源吗？此操作不可恢复。`,
+      showConfirm: true,
+      onConfirm: async () => {
+        await withLoading('batchDeleteEmby', async () => {
+          try {
+            const newSources = sources.filter(s => !selectedSources.has(s.key));
+            const response = await fetch('/api/admin/config', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...config, EmbyConfig: { Sources: newSources } }),
+            });
+            if (!response.ok) throw new Error('批量删除失败');
+            await refreshConfig();
+            setSelectedSources(new Set());
+            showSuccess(`已删除 ${selectedSources.size} 个源`, showAlert);
+          } catch (error) {
+            showError(error instanceof Error ? error.message : '批量删除失败', showAlert);
+          }
+        });
+      },
+    });
+  };
+
   return (
     <div className='space-y-6'>
       <AlertModal
@@ -3682,13 +3803,50 @@ const EmbyConfigComponent = ({
           <h3 className='text-lg font-medium text-gray-900 dark:text-gray-100'>
             Emby 源列表 ({sources.length})
           </h3>
-          <button
-            onClick={handleAdd}
-            className={buttonStyles.success}
-          >
-            添加新源
-          </button>
+          <div className='flex gap-2'>
+            <button
+              onClick={handleAdd}
+              className={buttonStyles.success}
+            >
+              添加新源
+            </button>
+          </div>
         </div>
+
+        {selectedSources.size > 0 && (
+          <div className='flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg'>
+            <span className='text-sm text-gray-700 dark:text-gray-300'>
+              已选择 {selectedSources.size} 项
+            </span>
+            <button
+              onClick={handleBatchEnable}
+              disabled={isLoading('batchEnableEmby')}
+              className={buttonStyles.successSmall}
+            >
+              批量启用
+            </button>
+            <button
+              onClick={handleBatchDisable}
+              disabled={isLoading('batchDisableEmby')}
+              className={buttonStyles.warningSmall}
+            >
+              批量禁用
+            </button>
+            <button
+              onClick={handleBatchDelete}
+              disabled={isLoading('batchDeleteEmby')}
+              className={buttonStyles.dangerSmall}
+            >
+              批量删除
+            </button>
+            <button
+              onClick={() => setSelectedSources(new Set())}
+              className={buttonStyles.secondarySmall}
+            >
+              取消选择
+            </button>
+          </div>
+        )}
 
         {sources.length === 0 ? (
           <div className='text-center py-8 text-gray-500 dark:text-gray-400'>
@@ -3701,37 +3859,53 @@ const EmbyConfigComponent = ({
               className='border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800'
             >
               <div className='flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3'>
-                <div className='flex-1'>
-                  <div className='flex items-center gap-3 flex-wrap'>
-                    <h4 className='text-base font-medium text-gray-900 dark:text-gray-100'>
-                      {source.name}
-                    </h4>
-                    {source.isDefault && (
-                      <span className='px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 rounded'>
-                        默认
+                <div className='flex items-center gap-3 flex-1'>
+                  <input
+                    type='checkbox'
+                    checked={selectedSources.has(source.key)}
+                    onChange={(e) => {
+                      const newSelected = new Set(selectedSources);
+                      if (e.target.checked) {
+                        newSelected.add(source.key);
+                      } else {
+                        newSelected.delete(source.key);
+                      }
+                      setSelectedSources(newSelected);
+                    }}
+                    className='w-4 h-4 text-blue-600 rounded border-gray-300 dark:border-gray-600'
+                  />
+                  <div className='flex-1'>
+                    <div className='flex items-center gap-3 flex-wrap'>
+                      <h4 className='text-base font-medium text-gray-900 dark:text-gray-100'>
+                        {source.name}
+                      </h4>
+                      {source.isDefault && (
+                        <span className='px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 rounded'>
+                          默认
+                        </span>
+                      )}
+                      <span
+                        className={`px-2 py-0.5 text-xs font-medium rounded ${
+                          source.enabled
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
+                            : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                        }`}
+                      >
+                        {source.enabled ? '已启用' : '已禁用'}
                       </span>
-                    )}
-                    <span
-                      className={`px-2 py-0.5 text-xs font-medium rounded ${
-                        source.enabled
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200'
-                          : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                      }`}
-                    >
-                      {source.enabled ? '已启用' : '已禁用'}
-                    </span>
-                  </div>
-                  <p className='mt-1 text-sm text-gray-600 dark:text-gray-400'>
-                    标识符: {source.key}
-                  </p>
-                  <p className='mt-1 text-sm text-gray-600 dark:text-gray-400'>
-                    服务器: {source.ServerURL}
-                  </p>
-                  {source.UserId && (
+                    </div>
                     <p className='mt-1 text-sm text-gray-600 dark:text-gray-400'>
-                      用户ID: {source.UserId}
+                      标识符: {source.key}
                     </p>
-                  )}
+                    <p className='mt-1 text-sm text-gray-600 dark:text-gray-400'>
+                      服务器: {source.ServerURL}
+                    </p>
+                    {source.UserId && (
+                      <p className='mt-1 text-sm text-gray-600 dark:text-gray-400'>
+                        用户ID: {source.UserId}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className='flex gap-2 flex-wrap sm:flex-nowrap'>
                   <button
@@ -8342,6 +8516,483 @@ const CustomAdFilterConfig = ({
   );
 };
 
+// 小雅配置组件
+const XiaoyaConfigComponent = ({
+  config,
+  refreshConfig,
+}: {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+  const [enabled, setEnabled] = useState(false);
+  const [serverURL, setServerURL] = useState('');
+  const [token, setToken] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    if (config?.XiaoyaConfig) {
+      setEnabled(config.XiaoyaConfig.Enabled || false);
+      setServerURL(config.XiaoyaConfig.ServerURL || '');
+      setToken(config.XiaoyaConfig.Token || '');
+      setUsername(config.XiaoyaConfig.Username || '');
+      setPassword(config.XiaoyaConfig.Password || '');
+    }
+  }, [config]);
+
+  const handleSave = async () => {
+    await withLoading('saveXiaoya', async () => {
+      try {
+        const response = await fetch('/api/admin/xiaoya', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save',
+            Enabled: enabled,
+            ServerURL: serverURL,
+            Token: token,
+            Username: username,
+            Password: password,
+          }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || '保存失败');
+        }
+
+        showSuccess('保存成功', showAlert);
+        await refreshConfig();
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '保存失败', showAlert);
+        throw error;
+      }
+    });
+  };
+
+  const handleTest = async () => {
+    await withLoading('testXiaoya', async () => {
+      try {
+        const response = await fetch('/api/admin/xiaoya', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'test',
+            ServerURL: serverURL,
+            Token: token,
+            Username: username,
+            Password: password,
+          }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showSuccess('连接成功', showAlert);
+        } else {
+          showError(data.message || '连接失败', showAlert);
+        }
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '连接失败', showAlert);
+        throw error;
+      }
+    });
+  };
+
+  return (
+    <div className='space-y-6'>
+      <div className='bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4'>
+        <h3 className='text-sm font-medium text-blue-900 dark:text-blue-100 mb-2'>
+          关于小雅
+        </h3>
+        <div className='text-sm text-blue-800 dark:text-blue-200 space-y-1'>
+          <p>• 小雅是基于 Alist 的网盘资源聚合服务</p>
+          <p>• 支持文件夹名自动识别 TMDb ID（格式：标题 (年份) {'{tmdb-id}'}）</p>
+          <p>• 支持 NFO 文件元数据（poster.jpg、background.jpg）</p>
+          <p>• 按需加载，无需全量扫描</p>
+        </div>
+      </div>
+
+      <div className='space-y-4'>
+        <div className='flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700'>
+          <div>
+            <h3 className='text-sm font-medium text-gray-900 dark:text-white'>
+              启用小雅功能
+            </h3>
+            <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+              关闭后将不显示小雅入口
+            </p>
+          </div>
+          <button
+            onClick={() => setEnabled(!enabled)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              enabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                enabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+
+        <div>
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+            Alist 服务器地址
+          </label>
+          <input
+            type='text'
+            value={serverURL}
+            onChange={(e) => setServerURL(e.target.value)}
+            placeholder='http://localhost:5244'
+            className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+          />
+          <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+            小雅 Alist 服务器的完整地址
+          </p>
+        </div>
+
+        <div>
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+            Token（推荐）
+          </label>
+          <input
+            type='password'
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder='可选，使用 Token 认证'
+            className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+          />
+        </div>
+
+        <div className='grid grid-cols-2 gap-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              用户名
+            </label>
+            <input
+              type='text'
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder='可选，用户名密码认证'
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            />
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              密码
+            </label>
+            <input
+              type='password'
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder='可选'
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
+            />
+          </div>
+        </div>
+
+        <div className='flex gap-3'>
+          <button
+            onClick={handleTest}
+            disabled={!serverURL || isLoading('testXiaoya')}
+            className={buttonStyles.primary}
+          >
+            {isLoading('testXiaoya') ? '测试中...' : '测试连接'}
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isLoading('saveXiaoya')}
+            className={buttonStyles.success}
+          >
+            {isLoading('saveXiaoya') ? '保存中...' : '保存配置'}
+          </button>
+        </div>
+      </div>
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+        showConfirm={alertModal.showConfirm}
+      />
+    </div>
+  );
+};
+
+// 求片列表组件
+const MovieRequestsComponent = ({ config, refreshConfig }: { config: AdminConfig | null; refreshConfig: () => Promise<void> }) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+  const [requests, setRequests] = useState<any[]>([]);
+  const [filter, setFilter] = useState<'pending' | 'fulfilled'>('pending');
+  const [pendingCount, setPendingCount] = useState(0);
+  const [fulfilledCount, setFulfilledCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // 求片功能设置
+  const [enableMovieRequest, setEnableMovieRequest] = useState(config?.SiteConfig?.EnableMovieRequest ?? true);
+  const [movieRequestCooldown, setMovieRequestCooldown] = useState(config?.SiteConfig?.MovieRequestCooldown ?? 3600);
+  const [savingSettings, setSavingSettings] = useState(false);
+
+  useEffect(() => {
+    loadRequests();
+    loadCounts();
+  }, [filter]);
+
+  const loadCounts = async () => {
+    try {
+      const response = await fetch('/api/movie-requests');
+      const data = await response.json();
+      const allRequests = data.requests || [];
+      setPendingCount(allRequests.filter((r: any) => r.status === 'pending').length);
+      setFulfilledCount(allRequests.filter((r: any) => r.status === 'fulfilled').length);
+    } catch (error) {
+      console.error('加载求片数量失败:', error);
+    }
+  };
+
+  const loadRequests = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/movie-requests?status=${filter}&detail=true`);
+      const data = await response.json();
+      setRequests(data.requests || []);
+    } catch (error) {
+      console.error('加载求片列表失败:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFulfill = async (id: string) => {
+    await withLoading(`fulfill_${id}`, async () => {
+      try {
+        const response = await fetch(`/api/movie-requests/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'fulfilled' }),
+        });
+        if (!response.ok) throw new Error('操作失败');
+        showSuccess('已标记为已上架', showAlert);
+        await loadRequests();
+      } catch (err) {
+        showError(err instanceof Error ? err.message : '操作失败', showAlert);
+      }
+    });
+  };
+
+  const handleDelete = async (id: string) => {
+    await withLoading(`delete_${id}`, async () => {
+      try {
+        const response = await fetch(`/api/movie-requests/${id}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('删除失败');
+        showSuccess('删除成功', showAlert);
+        await loadRequests();
+      } catch (err) {
+        showError(err instanceof Error ? err.message : '删除失败', showAlert);
+      }
+    });
+  };
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true);
+    try {
+      if (!config) throw new Error('配置未加载');
+
+      const updatedConfig = {
+        ...config,
+        SiteConfig: {
+          ...config.SiteConfig,
+          EnableMovieRequest: enableMovieRequest,
+          MovieRequestCooldown: movieRequestCooldown,
+        },
+      };
+
+      const response = await fetch('/api/admin/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedConfig),
+      });
+
+      if (!response.ok) throw new Error('保存失败');
+
+      showSuccess('求片设置已保存', showAlert);
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '保存失败', showAlert);
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  return (
+    <div className='space-y-4'>
+      {/* 求片功能设置 */}
+      <div className='p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700'>
+        <h3 className='text-lg font-medium text-gray-900 dark:text-gray-100 mb-4'>求片功能设置</h3>
+        <div className='space-y-4'>
+          <div className='flex items-center justify-between'>
+            <div>
+              <label className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                启用求片功能
+              </label>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                关闭后用户将无法访问求片页面
+              </p>
+            </div>
+            <label className='relative inline-flex items-center cursor-pointer'>
+              <input
+                type='checkbox'
+                checked={enableMovieRequest}
+                onChange={(e) => setEnableMovieRequest(e.target.checked)}
+                className='sr-only peer'
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              求片冷却时间（秒）
+            </label>
+            <p className='text-xs text-gray-500 dark:text-gray-400 mb-2'>
+              用户两次求片之间的最小间隔时间，默认3600秒（1小时）
+            </p>
+            <input
+              type='number'
+              min='0'
+              value={movieRequestCooldown}
+              onChange={(e) => setMovieRequestCooldown(parseInt(e.target.value) || 0)}
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+            />
+            <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+              {movieRequestCooldown >= 3600
+                ? `约 ${Math.floor(movieRequestCooldown / 3600)} 小时 ${Math.floor((movieRequestCooldown % 3600) / 60)} 分钟`
+                : movieRequestCooldown >= 60
+                ? `约 ${Math.floor(movieRequestCooldown / 60)} 分钟`
+                : `${movieRequestCooldown} 秒`}
+            </p>
+          </div>
+
+          <button
+            onClick={handleSaveSettings}
+            disabled={savingSettings}
+            className={buttonStyles.primary}
+          >
+            {savingSettings ? '保存中...' : '保存设置'}
+          </button>
+        </div>
+      </div>
+
+      {/* 求片列表 */}
+      <div className='p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700'>
+        <h3 className='text-lg font-medium text-gray-900 dark:text-gray-100 mb-4'>求片列表</h3>
+        <div className='flex gap-2 mb-4'>
+        <button
+          onClick={() => setFilter('pending')}
+          className={`px-4 py-2 rounded-lg ${
+            filter === 'pending'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+          }`}
+        >
+          待处理 ({pendingCount})
+        </button>
+        <button
+          onClick={() => setFilter('fulfilled')}
+          className={`px-4 py-2 rounded-lg ${
+            filter === 'fulfilled'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+          }`}
+        >
+          已上架 ({fulfilledCount})
+        </button>
+      </div>
+
+      {loading ? (
+        <div className='flex justify-center py-8'>
+          <div className='w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin' />
+        </div>
+      ) : requests.length === 0 ? (
+        <div className='text-center py-8 text-gray-500 dark:text-gray-400'>
+          暂无求片
+        </div>
+      ) : (
+        <div className='space-y-3'>
+          {requests.map((req) => (
+            <div
+              key={req.id}
+              className='p-4 bg-gray-50 dark:bg-gray-800 rounded-lg'
+            >
+              <div className='flex gap-4'>
+                {req.poster && (
+                  <img
+                    src={req.poster}
+                    alt={req.title}
+                    className='w-16 h-24 object-cover rounded'
+                  />
+                )}
+                <div className='flex-1'>
+                  <h3 className='font-medium text-gray-900 dark:text-gray-100'>
+                    {req.title} {req.year && `(${req.year})`}
+                  </h3>
+                  <p className='text-sm text-gray-600 dark:text-gray-400 mt-1'>
+                    求片人数: {req.requestCount} 人
+                  </p>
+                  <p className='text-xs text-gray-500 dark:text-gray-500 mt-1'>
+                    {new Date(req.createdAt).toLocaleString('zh-CN')}
+                  </p>
+                  {req.requestedBy && (
+                    <p className='text-xs text-gray-500 dark:text-gray-500 mt-1'>
+                      求片用户: {req.requestedBy.join(', ')}
+                    </p>
+                  )}
+                </div>
+                <div className='flex flex-col gap-2'>
+                  {filter === 'pending' && (
+                    <button
+                      onClick={() => handleFulfill(req.id)}
+                      disabled={isLoading(`fulfill_${req.id}`)}
+                      className={buttonStyles.successSmall}
+                    >
+                      {isLoading(`fulfill_${req.id}`) ? '处理中...' : '标记已上架'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(req.id)}
+                    disabled={isLoading(`delete_${req.id}`)}
+                    className={buttonStyles.dangerSmall}
+                  >
+                    {isLoading(`delete_${req.id}`) ? '删除中...' : '删除'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      </div>
+
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+        showConfirm={alertModal.showConfirm}
+      />
+    </div>
+  );
+};
+
 // AI配置组件
 const AIConfigComponent = ({
   config,
@@ -9504,8 +10155,10 @@ function AdminPageClient() {
   const [expandedTabs, setExpandedTabs] = useState<{ [key: string]: boolean }>({
     userConfig: false,
     videoSource: false,
+    mediaLibrary: false,
     openListConfig: false,
     embyConfig: false,
+    xiaoyaConfig: false,
     aiConfig: false,
     liveSource: false,
     siteConfig: false,
@@ -9807,28 +10460,65 @@ function AdminPageClient() {
               <LiveSourceConfig config={config} refreshConfig={fetchConfig} />
             </CollapsibleTab>
 
-            {/* 私人影库配置标签 */}
+            {/* 私人影库大类 */}
             <CollapsibleTab
               title='私人影库'
               icon={
-                <FolderOpen size={20} className='text-gray-600 dark:text-gray-400' />
+                <Database size={20} className='text-yellow-700 dark:text-yellow-400' />
               }
-              isExpanded={expandedTabs.openListConfig}
-              onToggle={() => toggleTab('openListConfig')}
+              isExpanded={expandedTabs.mediaLibrary}
+              onToggle={() => toggleTab('mediaLibrary')}
+              isParent={true}
             >
-              <OpenListConfigComponent config={config} refreshConfig={fetchConfig} />
-            </CollapsibleTab>
+              <div className='space-y-4'>
+                {/* Openlist配置子标签 */}
+                <CollapsibleTab
+                  title='Openlist配置'
+                  icon={
+                    <FolderOpen size={20} className='text-gray-600 dark:text-gray-400' />
+                  }
+                  isExpanded={expandedTabs.openListConfig}
+                  onToggle={() => toggleTab('openListConfig')}
+                >
+                  <OpenListConfigComponent config={config} refreshConfig={fetchConfig} />
+                </CollapsibleTab>
 
-            {/* Emby 媒体库标签 */}
-            <CollapsibleTab
-              title='Emby 媒体库'
-              icon={
-                <FolderOpen size={20} className='text-gray-600 dark:text-gray-400' />
-              }
-              isExpanded={expandedTabs.embyConfig}
-              onToggle={() => toggleTab('embyConfig')}
-            >
-              <EmbyConfigComponent config={config} refreshConfig={fetchConfig} />
+                {/* Emby 媒体库子标签 */}
+                <CollapsibleTab
+                  title='Emby 媒体库'
+                  icon={
+                    <FolderOpen size={20} className='text-gray-600 dark:text-gray-400' />
+                  }
+                  isExpanded={expandedTabs.embyConfig}
+                  onToggle={() => toggleTab('embyConfig')}
+                >
+                  <EmbyConfigComponent config={config} refreshConfig={fetchConfig} />
+                </CollapsibleTab>
+
+                {/* 小雅配置子标签 */}
+                <CollapsibleTab
+                  title='小雅配置'
+                  icon={
+                    <FolderOpen size={20} className='text-gray-600 dark:text-gray-400' />
+                  }
+                  isExpanded={expandedTabs.xiaoyaConfig}
+                  onToggle={() => toggleTab('xiaoyaConfig')}
+                >
+                  <XiaoyaConfigComponent config={config} refreshConfig={fetchConfig} />
+                </CollapsibleTab>
+
+                {/* 求片管理子标签 */}
+                <CollapsibleTab
+                  title='求片管理'
+                  icon={
+                    <Video size={20} className='text-gray-600 dark:text-gray-400' />
+                  }
+                  isExpanded={expandedTabs.movieRequests}
+                  onToggle={() => toggleTab('movieRequests')}
+                >
+                  <MovieRequestsComponent config={config} refreshConfig={fetchConfig} />
+                </CollapsibleTab>
+              </div>
             </CollapsibleTab>
 
             {/* AI配置标签 */}

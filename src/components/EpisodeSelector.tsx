@@ -21,6 +21,7 @@ interface VideoInfo {
   quality: string;
   loadSpeed: string;
   pingTime: number;
+  bitrate: string; // 视频码率
   hasError?: boolean; // 添加错误状态标识
 }
 
@@ -213,6 +214,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           quality: '错误',
           loadSpeed: '未知',
           pingTime: 0,
+          bitrate: '未知',
           hasError: true,
         })
       );
@@ -271,16 +273,18 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       if (
         !optimizationEnabled || // 若关闭测速则直接退出
         activeTab !== 'sources' ||
-        availableSources.length === 0 ||
-        currentSource === 'openlist' || // 私人影库不进行测速
-        currentSource === 'emby' // Emby 不进行测速
+        availableSources.length === 0
       )
         return;
 
-      // 筛选出尚未测速的播放源
+      // 筛选出尚未测速的播放源，并排除不需要测速的源（openlist/emby/xiaoya）
       const pendingSources = availableSources.filter((source) => {
         const sourceKey = `${source.source}-${source.id}`;
-        return !attemptedSourcesRef.current.has(sourceKey);
+        // 跳过已测速的源
+        if (attemptedSourcesRef.current.has(sourceKey)) return false;
+        // 跳过不需要测速的源
+        if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') return false;
+        return true;
       });
 
       if (pendingSources.length === 0) return;
@@ -308,11 +312,15 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     // 当后台加载从 true 变为 false 时（即加载完成）
     if (prevBackgroundLoadingRef.current && !backgroundSourcesLoading) {
       // 如果当前选项卡在换源位置，触发测速
-      if (activeTab === 'sources' && optimizationEnabled && currentSource !== 'openlist' && currentSource !== 'emby') {
-        // 筛选出尚未测速的播放源
+      if (activeTab === 'sources' && optimizationEnabled) {
+        // 筛选出尚未测速的播放源，并排除不需要测速的源（openlist/emby/xiaoya）
         const pendingSources = availableSources.filter((source) => {
           const sourceKey = `${source.source}-${source.id}`;
-          return !attemptedSourcesRef.current.has(sourceKey);
+          // 跳过已测速的源
+          if (attemptedSourcesRef.current.has(sourceKey)) return false;
+          // 跳过不需要测速的源
+          if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') return false;
+          return true;
         });
 
         if (pendingSources.length > 0) {
@@ -683,6 +691,13 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                         if (title.match(/^OVA\s+\d+/i)) {
                           return title;
                         }
+                        // 如果匹配 S01E01 格式，提取并返回
+                        const sxxexxMatch = title.match(/[Ss](\d+)[Ee](\d{1,4}(?:\.\d+)?)/);
+                        if (sxxexxMatch) {
+                          const season = sxxexxMatch[1].padStart(2, '0');
+                          const episode = sxxexxMatch[2];
+                          return `S${season}E${episode}`;
+                        }
                         // 如果匹配"第X集"、"第X话"、"X集"、"X话"格式，提取中间的数字（支持小数）
                         const match = title.match(/(?:第)?(\d+(?:\.\d+)?)(?:集|话)/);
                         if (match) {
@@ -856,7 +871,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           {/* 源名称和集数信息 - 垂直居中 */}
                           <div className='flex items-center justify-between'>
                             <span className={`text-xs px-2 py-1 border rounded text-gray-700 dark:text-gray-300 ${
-                              source.source === 'openlist' || source.source === 'emby' || source.source?.startsWith('emby_')
+                              source.source === 'xiaoya' ? 'border-blue-500' : source.source === 'openlist' || source.source === 'emby' || source.source?.startsWith('emby_')
                            ? 'border-yellow-500'
                                 : 'border-gray-500/60'
                       }`}>
@@ -885,6 +900,11 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                         <div className='text-orange-600 dark:text-orange-400 font-medium text-xs'>
                                           {videoInfo.pingTime}ms
                                         </div>
+                                        {videoInfo.bitrate && videoInfo.bitrate !== '未知' && (
+                                          <div className='text-purple-600 dark:text-purple-400 font-medium text-xs'>
+                                            {videoInfo.bitrate}
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   } else {
@@ -900,8 +920,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                             </div>
                             {/* 重新测试按钮 */}
                             {(() => {
-                              // 私人影库和 Emby 不显示重新测试按钮
-                              if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_')) {
+                              // 私人影库、Emby 和小雅不显示重新测试按钮
+                              if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') {
                                 return null;
                               }
 

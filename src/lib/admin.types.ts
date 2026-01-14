@@ -40,6 +40,9 @@ export interface AdminConfig {
     TurnstileSiteKey?: string; // Cloudflare Turnstile Site Key
     TurnstileSecretKey?: string; // Cloudflare Turnstile Secret Key
     DefaultUserTags?: string[]; // 新注册用户的默认用户组
+    // 求片功能配置
+    EnableMovieRequest?: boolean; // 启用求片功能
+    MovieRequestCooldown?: number; // 求片冷却时间（秒），默认3600
     // OIDC配置
     EnableOIDCLogin?: boolean; // 启用OIDC登录
     EnableOIDCRegistration?: boolean; // 启用OIDC注册
@@ -106,7 +109,8 @@ export interface AdminConfig {
     URL: string; // OpenList 服务器地址
     Username: string; // 账号（用于登录获取Token）
     Password: string; // 密码（用于登录获取Token）
-    RootPath: string; // 根目录路径，默认 "/"
+    RootPath?: string; // 旧字段：根目录路径（向后兼容，迁移后删除）
+    RootPaths?: string[]; // 新字段：多根目录路径列表
     OfflineDownloadPath: string; // 离线下载目录，默认 "/"
     LastRefreshTime?: number; // 上次刷新时间戳
     ResourceCount?: number; // 资源数量
@@ -191,6 +195,13 @@ export interface AdminConfig {
     Libraries?: string[];
     LastSyncTime?: number;
     ItemCount?: number;
+  };
+  XiaoyaConfig?: {
+    Enabled: boolean; // 是否启用
+    ServerURL: string; // Alist 服务器地址
+    Token?: string; // Token 认证（推荐）
+    Username?: string; // 用户名认证（备选）
+    Password?: string; // 密码认证（备选）
   };
 }
 

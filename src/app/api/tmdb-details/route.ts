@@ -162,6 +162,7 @@ export async function GET(request: NextRequest) {
       overview: details.overview || '',
       rating: details.vote_average ? details.vote_average.toFixed(1) : '',
       releaseDate: details.release_date || details.first_air_date || '',
+      genres: details.genres || [], // 添加类型标签
     };
 
     return NextResponse.json(responseData, {
