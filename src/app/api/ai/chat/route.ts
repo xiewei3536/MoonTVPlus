@@ -34,8 +34,9 @@ async function streamOpenAIChat(
     model: string;
     temperature: number;
     maxTokens: number;
-  }
-): Promise<ReadableStream> {
+  },
+  enableStreaming: boolean = true
+): Promise<ReadableStream | Response> {
   const response = await fetch(`${config.baseURL}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -47,7 +48,7 @@ async function streamOpenAIChat(
       messages,
       temperature: config.temperature,
       max_tokens: config.maxTokens,
-      stream: true,
+      stream: enableStreaming,
     }),
   });
 
@@ -57,7 +58,7 @@ async function streamOpenAIChat(
     );
   }
 
-  return response.body!;
+  return enableStreaming ? response.body! : response;
 }
 
 /**
@@ -265,6 +266,7 @@ export async function POST(request: NextRequest) {
     // 6. 调用自定义API
     const temperature = aiConfig.Temperature ?? 0.7;
     const maxTokens = aiConfig.MaxTokens ?? 1000;
+    const enableStreaming = aiConfig.EnableStreaming !== false; // 默认启用流式响应
 
     if (!aiConfig.CustomApiKey || !aiConfig.CustomBaseURL) {
       return NextResponse.json(
@@ -273,24 +275,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const stream = await streamOpenAIChat(messages, {
+    const result = await streamOpenAIChat(messages, {
       apiKey: aiConfig.CustomApiKey,
       baseURL: aiConfig.CustomBaseURL,
       model: aiConfig.CustomModel || 'gpt-3.5-turbo',
       temperature,
       maxTokens,
-    });
+    }, enableStreaming);
 
-    // 7. 转换为SSE格式并返回
-    const sseStream = transformToSSE(stream, 'openai');
+    // 7. 根据是否启用流式响应返回不同格式
+    if (enableStreaming) {
+      // 流式响应：转换为SSE格式并返回
+      const sseStream = transformToSSE(result as ReadableStream, 'openai');
 
-    return new NextResponse(sseStream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    });
+      return new NextResponse(sseStream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        },
+      });
+    } else {
+      // 非流式响应：等待完整响应后返回JSON
+      const response = result as Response;
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || '';
+
+      return NextResponse.json({ content });
+    }
   } catch (error) {
     console.error('❌ AI聊天API错误:', error);
     return NextResponse.json(

@@ -13,12 +13,19 @@ export async function GET(request: NextRequest) {
   const pageSize = parseInt(searchParams.get('pageSize') || '20');
   const parentId = searchParams.get('parentId') || undefined;
   const embyKey = searchParams.get('embyKey') || undefined;
+  const sortBy = searchParams.get('sortBy') || 'SortName';
+  const sortOrder = searchParams.get('sortOrder') || 'Ascending';
 
   try {
-    // 检查缓存
-    const cached = getCachedEmbyList(page, pageSize, parentId, embyKey);
-    if (cached) {
-      return NextResponse.json(cached);
+    // 判断是否是默认排序（只有默认排序才使用缓存）
+    const isDefaultSort = sortBy === 'SortName' && sortOrder === 'Ascending';
+
+    // 只有默认排序才检查缓存
+    if (isDefaultSort) {
+      const cached = getCachedEmbyList(page, pageSize, parentId, embyKey);
+      if (cached) {
+        return NextResponse.json(cached);
+      }
     }
 
     // 获取Emby客户端
@@ -30,8 +37,8 @@ export async function GET(request: NextRequest) {
       IncludeItemTypes: 'Movie,Series',
       Recursive: true,
       Fields: 'Overview,ProductionYear',
-      SortBy: 'SortName',
-      SortOrder: 'Ascending',
+      SortBy: sortBy,
+      SortOrder: sortOrder,
       StartIndex: (page - 1) * pageSize,
       Limit: pageSize,
     });
@@ -55,8 +62,10 @@ export async function GET(request: NextRequest) {
       total: result.TotalRecordCount,
     };
 
-    // 缓存结果
-    setCachedEmbyList(page, pageSize, response, parentId, embyKey);
+    // 只有默认排序才缓存结果
+    if (isDefaultSort) {
+      setCachedEmbyList(page, pageSize, response, parentId, embyKey);
+    }
 
     return NextResponse.json(response);
   } catch (error) {

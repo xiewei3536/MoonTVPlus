@@ -149,10 +149,10 @@ export async function POST(req: NextRequest) {
         }
 
         // 使用storage.withRetry直接设置用户信息
-        await storage.withRetry(() => storage.client.hset(userInfoKey, userInfo));
+        await storage.withRetry(() => storage.client.hSet(userInfoKey, userInfo));
 
         // 添加到用户列表
-        await storage.withRetry(() => storage.client.zadd('user:list', {
+        await storage.withRetry(() => storage.client.zAdd('user:list', {
           score: createdAt,
           value: username,
         }));

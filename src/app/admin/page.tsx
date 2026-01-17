@@ -2781,6 +2781,7 @@ const OpenListConfigComponent = ({
   const [offlineDownloadPath, setOfflineDownloadPath] = useState('/');
   const [scanInterval, setScanInterval] = useState(0);
   const [scanMode, setScanMode] = useState<'torrent' | 'name' | 'hybrid'>('hybrid');
+  const [disableVideoPreview, setDisableVideoPreview] = useState(false);
   const [videos, setVideos] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [scanProgress, setScanProgress] = useState<{
@@ -2801,6 +2802,7 @@ const OpenListConfigComponent = ({
       setOfflineDownloadPath(config.OpenListConfig.OfflineDownloadPath || '/');
       setScanInterval(config.OpenListConfig.ScanInterval || 0);
       setScanMode(config.OpenListConfig.ScanMode || 'hybrid');
+      setDisableVideoPreview(config.OpenListConfig.DisableVideoPreview || false);
     }
   }, [config]);
 
@@ -2842,6 +2844,7 @@ const OpenListConfigComponent = ({
             OfflineDownloadPath: offlineDownloadPath,
             ScanInterval: scanInterval,
             ScanMode: scanMode,
+            DisableVideoPreview: disableVideoPreview,
           }),
         });
 
@@ -3216,6 +3219,30 @@ const OpenListConfigComponent = ({
           <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
             混合模式：先用种子库匹配，失败后降级为名字匹配
           </p>
+        </div>
+
+        <div className='flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700'>
+          <div>
+            <h3 className='text-sm font-medium text-gray-900 dark:text-white'>
+              禁用预览视频
+            </h3>
+            <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+              开启后将直接返回直连链接，不使用视频预览流
+            </p>
+          </div>
+          <button
+            onClick={() => setDisableVideoPreview(!disableVideoPreview)}
+            disabled={!enabled}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              disableVideoPreview ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+            } ${!enabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                disableVideoPreview ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
         </div>
 
         <div className='flex gap-3'>
@@ -3707,6 +3734,66 @@ const EmbyConfigComponent = ({
         showError(error instanceof Error ? error.message : '缓存清除失败', showAlert);
       }
     });
+  };
+
+  // 导出配置
+  const handleExport = async () => {
+    await withLoading('exportEmby', async () => {
+      try {
+        const response = await fetch('/api/admin/emby/export');
+        if (!response.ok) {
+          const data = await response.json();
+          showError(data.error || '导出失败', showAlert);
+          return;
+        }
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `emby-config-${Date.now()}.json`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        showSuccess('导出成功', showAlert);
+      } catch (error) {
+        showError(error instanceof Error ? error.message : '导出失败', showAlert);
+      }
+    });
+  };
+
+  // 导入配置
+  const handleImport = async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      await withLoading('importEmby', async () => {
+        try {
+          const text = await file.text();
+          const data = JSON.parse(text);
+
+          const response = await fetch('/api/admin/emby/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data }),
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            showSuccess('导入成功', showAlert);
+            await refreshConfig();
+          } else {
+            showError(result.error || '导入失败', showAlert);
+          }
+        } catch (error) {
+          showError(error instanceof Error ? error.message : '导入失败', showAlert);
+        }
+      });
+    };
+    input.click();
   };
 
   // 批量启用
@@ -4208,6 +4295,20 @@ const EmbyConfigComponent = ({
           className={buttonStyles.warning}
         >
           {isLoading('clearEmbyCache') ? '清除中...' : '清除所有缓存'}
+        </button>
+        <button
+          onClick={handleExport}
+          disabled={isLoading('exportEmby')}
+          className={buttonStyles.secondary}
+        >
+          {isLoading('exportEmby') ? '导出中...' : '导出配置'}
+        </button>
+        <button
+          onClick={handleImport}
+          disabled={isLoading('importEmby')}
+          className={buttonStyles.secondary}
+        >
+          {isLoading('importEmby') ? '导入中...' : '导入配置'}
         </button>
       </div>
     </div>
@@ -8531,6 +8632,7 @@ const XiaoyaConfigComponent = ({
   const [token, setToken] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [disableVideoPreview, setDisableVideoPreview] = useState(false);
 
   useEffect(() => {
     if (config?.XiaoyaConfig) {
@@ -8539,6 +8641,7 @@ const XiaoyaConfigComponent = ({
       setToken(config.XiaoyaConfig.Token || '');
       setUsername(config.XiaoyaConfig.Username || '');
       setPassword(config.XiaoyaConfig.Password || '');
+      setDisableVideoPreview(config.XiaoyaConfig.DisableVideoPreview || false);
     }
   }, [config]);
 
@@ -8555,6 +8658,7 @@ const XiaoyaConfigComponent = ({
             Token: token,
             Username: username,
             Password: password,
+            DisableVideoPreview: disableVideoPreview,
           }),
         });
 
@@ -8692,6 +8796,29 @@ const XiaoyaConfigComponent = ({
               className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100'
             />
           </div>
+        </div>
+
+        <div className='flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700'>
+          <div>
+            <h3 className='text-sm font-medium text-gray-900 dark:text-white'>
+              禁用预览视频
+            </h3>
+            <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+              开启后将直接返回直连链接，不使用视频预览流
+            </p>
+          </div>
+          <button
+            onClick={() => setDisableVideoPreview(!disableVideoPreview)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              disableVideoPreview ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                disableVideoPreview ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
         </div>
 
         <div className='flex gap-3'>
@@ -9034,6 +9161,7 @@ const AIConfigComponent = ({
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(1000);
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [enableStreaming, setEnableStreaming] = useState(true);
 
   // AI默认消息配置
   const [defaultMessageNoVideo, setDefaultMessageNoVideo] = useState('');
@@ -9059,6 +9187,7 @@ const AIConfigComponent = ({
       setTemperature(config.AIConfig.Temperature ?? 0.7);
       setMaxTokens(config.AIConfig.MaxTokens ?? 1000);
       setSystemPrompt(config.AIConfig.SystemPrompt || '');
+      setEnableStreaming(config.AIConfig.EnableStreaming !== false);
       setDefaultMessageNoVideo(config.AIConfig.DefaultMessageNoVideo || '');
       setDefaultMessageWithVideo(config.AIConfig.DefaultMessageWithVideo || '');
     }
@@ -9091,6 +9220,7 @@ const AIConfigComponent = ({
             Temperature: temperature,
             MaxTokens: maxTokens,
             SystemPrompt: systemPrompt,
+            EnableStreaming: enableStreaming,
             DefaultMessageNoVideo: defaultMessageNoVideo,
             DefaultMessageWithVideo: defaultMessageWithVideo,
           }),
@@ -9443,15 +9573,39 @@ const AIConfigComponent = ({
 
           <div>
             <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              自定义系统提示词
+           自定义系统提示词
             </label>
             <textarea
-              value={systemPrompt}
+        value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               rows={4}
               placeholder='可自定义AI的角色和行为规则...'
               className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100'
             />
+          </div>
+
+          {/* 流式响应开关 */}
+          <div className='flex items-center justify-between py-3 border-t border-gray-200 dark:border-gray-700'>
+            <div className='flex-1'>
+              <label className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                流式响应
+              </label>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                启用后AI消息将实时流式显示，关闭后将等待完整响应后一次性显示
+              </p>
+            </div>
+            <button
+              onClick={() => setEnableStreaming(!enableStreaming)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+          enableStreaming ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  enableStreaming ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
           </div>
         </div>
     </details>
@@ -10284,6 +10438,23 @@ function AdminPageClient() {
     });
   };
 
+  // 新增: 重载配置处理函数
+  const handleReloadConfig = async () => {
+    await withLoading('reloadConfig', async () => {
+      try {
+        const response = await fetch(`/api/admin/reload`);
+        if (!response.ok) {
+          throw new Error(`重载失败: ${response.status}`);
+        }
+        showSuccess('重载成功，配置缓存已清除！', showAlert);
+        await fetchConfig();
+      } catch (err) {
+        showError(err instanceof Error ? err.message : '重载失败', showAlert);
+        throw err;
+      }
+    });
+  };
+
   if (loading) {
     return (
       <PageLayout activePath='/admin'>
@@ -10321,12 +10492,20 @@ function AdminPageClient() {
               管理员设置
             </h1>
             {config && role === 'owner' && (
-              <button
-                onClick={handleResetConfig}
-                className={`px-3 py-1 text-xs rounded-md transition-colors ${buttonStyles.dangerSmall}`}
-              >
-                重置配置
-              </button>
+              <>
+                <button
+                  onClick={handleResetConfig}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors ${buttonStyles.dangerSmall}`}
+                >
+                  重置配置
+                </button>
+                <button
+                  onClick={handleReloadConfig}
+                  className={`px-3 py-1 text-xs rounded-md transition-colors ${buttonStyles.primarySmall}`}
+                >
+                  重载配置
+                </button>
+              </>
             )}
           </div>
 

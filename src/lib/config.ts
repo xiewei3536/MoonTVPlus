@@ -611,3 +611,8 @@ export async function getAvailableApiSites(user?: string): Promise<ApiSite[]> {
 export async function setCachedConfig(config: AdminConfig) {
   cachedConfig = config;
 }
+
+export async function clearConfigCache() {
+  cachedConfig = null as any;
+  configInitPromise = null;
+}

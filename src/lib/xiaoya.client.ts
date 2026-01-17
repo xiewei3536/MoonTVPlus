@@ -106,7 +106,7 @@ export class XiaoyaClient {
   /**
    * 列出目录内容
    */
-  async listDirectory(path: string, page = 1, perPage = 100): Promise<XiaoyaListResponse> {
+  async listDirectory(path: string, page = 1, perPage = 100, refresh = false): Promise<XiaoyaListResponse> {
     const token = await this.getToken();
 
     const response = await fetch(`${this.baseURL}/api/fs/list`, {
@@ -119,7 +119,7 @@ export class XiaoyaClient {
         path,
         page,
         per_page: perPage,
-        refresh: false,
+        refresh,
       }),
     });
 

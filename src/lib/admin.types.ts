@@ -116,6 +116,7 @@ export interface AdminConfig {
     ResourceCount?: number; // 资源数量
     ScanInterval?: number; // 定时扫描间隔（分钟），0表示关闭，最低60分钟
     ScanMode?: 'torrent' | 'name' | 'hybrid'; // 扫描模式：torrent=种子库匹配，name=名字匹配，hybrid=混合模式（默认）
+    DisableVideoPreview?: boolean; // 禁用预览视频，直接返回直连链接
   };
   AIConfig?: {
     Enabled: boolean; // 是否启用AI问片功能
@@ -158,6 +159,7 @@ export interface AdminConfig {
     Temperature?: number; // AI温度参数（0-2），默认0.7
     MaxTokens?: number; // 最大回复token数，默认1000
     SystemPrompt?: string; // 自定义系统提示词
+    EnableStreaming?: boolean; // 是否启用流式响应，默认true
     // AI问片默认消息配置
     DefaultMessageNoVideo?: string; // 无视频时的默认消息
     DefaultMessageWithVideo?: string; // 有视频时的默认消息（支持 {title} 替换符）
@@ -202,6 +204,7 @@ export interface AdminConfig {
     Token?: string; // Token 认证（推荐）
     Username?: string; // 用户名认证（备选）
     Password?: string; // 密码认证（备选）
+    DisableVideoPreview?: boolean; // 禁用预览视频，直接返回直连链接
   };
 }
 

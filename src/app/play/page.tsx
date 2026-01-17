@@ -10,6 +10,7 @@ import { usePlaySync } from '@/hooks/usePlaySync';
 import { getDoubanDetail } from '@/lib/douban.client';
 import { useDownload } from '@/contexts/DownloadContext';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import { useSite } from '@/components/SiteProvider';
 
 import {
   deleteFavorite,
@@ -86,6 +87,7 @@ function PlayPageClient() {
   const searchParams = useSearchParams();
   const enableComments = useEnableComments();
   const { addDownloadTask } = useDownload();
+  const { siteName } = useSite();
 
   // 获取 Proxy M3U8 Token
   const proxyToken = typeof window !== 'undefined' ? process.env.NEXT_PUBLIC_PROXY_M3U8_TOKEN || '' : '';
@@ -165,6 +167,13 @@ function PlayPageClient() {
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
       document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, []);
+
+  // 组件卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      clearRefreshTimer();
     };
   }, []);
 
@@ -458,6 +467,15 @@ function PlayPageClient() {
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
   const [videoCover, setVideoCover] = useState('');
   const [videoDoubanId, setVideoDoubanId] = useState(0);
+
+  // 更新浏览器标题
+  useEffect(() => {
+    if (videoTitle) {
+      document.title = `${siteName} - ${videoTitle}`;
+    } else {
+      document.title = siteName;
+    }
+  }, [videoTitle, siteName]);
   // 豆瓣评分数据
   const [doubanRating, setDoubanRating] = useState<{
     value: number;
@@ -567,6 +585,7 @@ function PlayPageClient() {
   // 当集数改变时，重置下集预缓存标记
   useEffect(() => {
     nextEpisodePreCacheTriggeredRef.current = false;
+    nextEpisodeDanmakuPreloadTriggeredRef.current = false;
     // 清理之前的预缓存 HLS 实例
     if (nextEpisodePreCacheHlsRef.current) {
       try {
@@ -1115,6 +1134,14 @@ function PlayPageClient() {
   // 视频清晰度列表
   const [videoQualities, setVideoQualities] = useState<Array<{name: string, url: string}>>([]);
 
+  // Xiaoya链接刷新相关状态
+  const [isRefreshingUrl, setIsRefreshingUrl] = useState(false); // 是否正在刷新链接
+  const retryCountRef = useRef(0); // 重试计数
+  const lastRefreshTimeRef = useRef(0); // 上次刷新时间
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null); // 14分钟定时器
+  const currentXiaoyaUrlRef = useRef<string>(''); // 当前xiaoya原始URL（用于刷新）
+  const isInitialLoadRef = useRef(true); // 标记是否为首次加载
+
   // 视频源代理模式状态
   const [sourceProxyMode, setSourceProxyMode] = useState(false);
 
@@ -1180,6 +1207,7 @@ function PlayPageClient() {
   // 下集预缓存相关
   const nextEpisodePreCacheTriggeredRef = useRef<boolean>(false);
   const nextEpisodePreCacheHlsRef = useRef<any>(null);
+  const nextEpisodeDanmakuPreloadTriggeredRef = useRef<boolean>(false);
 
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
@@ -1467,11 +1495,242 @@ function PlayPageClient() {
     return false;
   };
 
+  /**
+   * 刷新xiaoya链接（静默刷新，不改变videoUrl状态）
+   * @param hls HLS实例
+   * @param video 视频元素
+   * @param isScheduled 是否为定时刷新（true=定时，false=错误触发）
+   */
+  const refreshXiaoyaUrl = async (
+    hls: any,
+    video: HTMLVideoElement,
+    isScheduled: boolean = false
+  ) => {
+    // 防抖：距离上次刷新不足3秒则不刷新
+    const now = Date.now();
+    if (now - lastRefreshTimeRef.current < 3000) {
+      console.log('[链接刷新] 防抖跳过');
+      return false;
+    }
+
+    // 重试次数限制（仅对错误触发的刷新）
+    if (!isScheduled && retryCountRef.current >= 3) {
+      console.error('[链接刷新] 重试次数已达上限');
+      setVideoError('链接已过期且刷新失败，请手动刷新页面');
+      hls.destroy();
+      return false;
+    }
+
+    // 检查是否有原始URL
+    if (!currentXiaoyaUrlRef.current) {
+      console.warn('[链接刷新] 无原始URL，跳过刷新');
+      return false;
+    }
+
+    console.log(`[链接刷新] 开始刷新 (${isScheduled ? '定时' : '错误触发'})`);
+    setIsRefreshingUrl(true);
+
+    if (!isScheduled) {
+      retryCountRef.current++;
+    }
+    lastRefreshTimeRef.current = now;
+
+    try {
+      // 保存当前播放进度
+      const currentTime = video.currentTime;
+      const isPaused = video.paused;
+
+      console.log(`[链接刷新] 开始刷新 (${isScheduled ? '定时' : '错误触发'}), 当前时间:`, currentTime);
+
+      // 重新获取播放链接（添加时间戳避免缓存）
+      const separator = currentXiaoyaUrlRef.current.includes('?') ? '&' : '?';
+      const fetchUrl = `${currentXiaoyaUrlRef.current}${separator}format=json&t=${Date.now()}`;
+
+      const response = await fetch(fetchUrl);
+      const data = await response.json();
+
+      if (!data.url) {
+        throw new Error('未获取到有效链接');
+      }
+
+      console.log('[链接刷新] 获取到新链接');
+
+      // 先停止HLS加载
+      hls.stopLoad();
+
+      // 使用HLS的loadSource方法直接加载新链接（不改变videoUrl状态）
+      hls.loadSource(data.url);
+
+      // 监听加载完成事件，恢复播放进度
+      const onManifestParsed = () => {
+        // 从指定位置开始加载
+        hls.startLoad(currentTime);
+
+        // 等待视频可以seek
+        const onLoadedData = () => {
+          video.removeEventListener('loadeddata', onLoadedData);
+
+          // 设置播放位置
+          if (currentTime > 0) {
+            video.currentTime = currentTime;
+
+            // 等待seek完成
+            const onSeeked = () => {
+              console.log('[链接刷新] 刷新完成，恢复到:', video.currentTime);
+
+              video.removeEventListener('seeked', onSeeked);
+
+              // 恢复播放状态
+              if (!isPaused) {
+                video.play().catch(err => {
+                  console.warn('[链接刷新] 自动播放失败:', err);
+                });
+              } else {
+                // 确保暂停状态
+                video.pause();
+              }
+
+              setIsRefreshingUrl(false);
+
+              // 显示提示
+              if (artPlayerRef.current) {
+                artPlayerRef.current.notice.show = isScheduled
+                  ? '链接已自动刷新'
+                  : '链接已过期并自动刷新';
+              }
+
+              // 刷新成功，重置重试计数
+              retryCountRef.current = 0;
+
+              // 重新启动14分钟定时器
+              startRefreshTimer(hls, video);
+            };
+
+            video.addEventListener('seeked', onSeeked, { once: true });
+          } else {
+            // 如果是从头开始
+            if (!isPaused) {
+              video.play().catch(err => {
+                console.warn('[链接刷新] 自动播放失败:', err);
+              });
+            } else {
+              // 确保暂停状态
+              video.pause();
+            }
+
+            setIsRefreshingUrl(false);
+
+            if (artPlayerRef.current) {
+              artPlayerRef.current.notice.show = isScheduled
+                ? '链接已自动刷新'
+                : '链接已过期并自动刷新';
+            }
+
+            retryCountRef.current = 0;
+            startRefreshTimer(hls, video);
+          }
+        };
+
+        video.addEventListener('loadeddata', onLoadedData, { once: true });
+      };
+
+      // 使用 hls.constructor.Events 访问事件常量
+      const HlsEvents = (hls.constructor as any).Events;
+      hls.once(HlsEvents.MANIFEST_PARSED, onManifestParsed);
+
+      // 添加超时保护（10秒内未加载完成则认为失败）
+      setTimeout(() => {
+        hls.off(HlsEvents.MANIFEST_PARSED, onManifestParsed);
+        if (isRefreshingUrl) {
+          console.error('[链接刷新] 加载超时');
+          setIsRefreshingUrl(false);
+          throw new Error('加载超时');
+        }
+      }, 10000);
+
+      return true;
+    } catch (error) {
+      console.error('[链接刷新] 刷新失败:', error);
+      setIsRefreshingUrl(false);
+
+      // 如果是定时刷新失败，不显示错误（继续使用旧链接）
+      if (isScheduled) {
+        console.warn('[链接刷新] 定时刷新失败，继续使用旧链接');
+        // 5分钟后再试一次
+        setTimeout(() => {
+          if (hls && video && currentXiaoyaUrlRef.current) {
+            refreshXiaoyaUrl(hls, video, true);
+          }
+        }, 5 * 60 * 1000);
+        return false;
+      }
+
+      // 错误触发的刷新失败，如果还有重试次数，延迟后再试
+      if (retryCountRef.current < 3) {
+        console.log(`[链接刷新] 2秒后重试 (${retryCountRef.current}/3)`);
+        setTimeout(() => {
+          if (hls && video && currentXiaoyaUrlRef.current) {
+            refreshXiaoyaUrl(hls, video, false);
+          }
+        }, 2000);
+      } else {
+        setVideoError('链接刷新失败，请手动刷新页面');
+        hls.destroy();
+      }
+
+      return false;
+    }
+  };
+
+  /**
+   * 启动14分钟定时刷新器
+   */
+  const startRefreshTimer = (hls: any, video: HTMLVideoElement) => {
+    // 清除旧定时器
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+
+    // 只对xiaoya源启动定时器
+    if (!currentXiaoyaUrlRef.current) {
+      return;
+    }
+
+    console.log('[定时刷新] 启动14分钟定时器');
+
+    // 14分钟 = 840000毫秒
+    refreshTimerRef.current = setTimeout(() => {
+      console.log('[定时刷新] 14分钟到期，开始刷新');
+      if (hls && video && currentXiaoyaUrlRef.current) {
+        refreshXiaoyaUrl(hls, video, true);
+      }
+    }, 14 * 60 * 1000);
+  };
+
+  /**
+   * 清除刷新定时器
+   */
+  const clearRefreshTimer = () => {
+    if (refreshTimerRef.current) {
+      console.log('[定时刷新] 清除定时器');
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  };
+
   // 更新视频地址
   const updateVideoUrl = async (
     detailData: SearchResult | null,
     episodeIndex: number
   ) => {
+    // 重置刷新相关状态
+    retryCountRef.current = 0;
+    lastRefreshTimeRef.current = 0;
+    currentXiaoyaUrlRef.current = ''; // 清空旧的原始URL
+    clearRefreshTimer(); // 清除旧的定时器
+    isInitialLoadRef.current = true; // 重置为首次加载
+
     // 动态设置 referrer policy：只在小雅源时不发送 Referer
     const existingMeta = document.querySelector('meta[name="referrer"]');
     if (detailData?.source === 'xiaoya') {
@@ -1505,6 +1764,9 @@ function PlayPageClient() {
     // 如果是小雅或 openlist 接口，先请求获取真实 URL
     if (newUrl.startsWith('/api/xiaoya/play') || newUrl.startsWith('/api/openlist/play')) {
       try {
+        // 保存原始URL（用于后续刷新）
+        currentXiaoyaUrlRef.current = newUrl;
+
         // 添加 format=json 参数
         const separator = newUrl.includes('?') ? '&' : '?';
         const fetchUrl = `${newUrl}${separator}format=json`;
@@ -1523,6 +1785,7 @@ function PlayPageClient() {
       } catch (error) {
         console.error('获取播放链接失败:', error);
         setVideoQualities([]);
+        currentXiaoyaUrlRef.current = ''; // 获取失败，清空
       }
     } else {
       // 非小雅/openlist 源，清空清晰度列表
@@ -1717,6 +1980,9 @@ function PlayPageClient() {
 
   // 清理播放器资源的统一函数
   const cleanupPlayer = async () => {
+    // 清除刷新定时器
+    clearRefreshTimer();
+
     // 先清理Anime4K，避免GPU纹理错误
     await cleanupAnime4K();
 
@@ -3375,6 +3641,120 @@ function PlayPageClient() {
     }
   };
 
+  // 预加载下一集弹幕（完全复制 loadDanmakuForCurrentEpisode 的逻辑）
+  const preloadNextEpisodeDanmaku = async () => {
+    try {
+      const title = videoTitleRef.current;
+      if (!title) {
+        return;
+      }
+
+      const currentIdx = currentEpisodeIndexRef.current;
+      const nextEpisodeIndex = currentIdx + 1;
+
+      // 1. 检查是否有下一集
+      const episodes = detailRef.current?.episodes;
+      if (!episodes || nextEpisodeIndex >= episodes.length) {
+        return;
+      }
+
+      // 2. 检查缓存是否已存在
+      const cachedData = await getDanmakuFromCache(title, nextEpisodeIndex);
+      if (cachedData && cachedData.comments.length > 0) {
+        return;
+      }
+
+      // 3. 检查是否有手动选择的剧集 ID
+      const manualEpisodeId = getManualDanmakuSelection(title, nextEpisodeIndex);
+      if (manualEpisodeId) {
+        try {
+          await getDanmakuById(manualEpisodeId, title, nextEpisodeIndex);
+          return;
+        } catch (error) {
+          // 继续执行后续逻辑
+        }
+      }
+
+      // 4. 尝试使用保存的动漫ID自动匹配剧集
+      const savedAnimeId = getDanmakuAnimeId(title);
+      if (savedAnimeId) {
+        try {
+          const episodesResult = await getEpisodes(savedAnimeId);
+
+          if (episodesResult.success && episodesResult.bangumi.episodes.length > 0) {
+            const nextVideoEpTitle = detailRef.current?.episodes_titles?.[nextEpisodeIndex];
+            const episode = matchDanmakuEpisode(nextEpisodeIndex, episodesResult.bangumi.episodes, nextVideoEpTitle);
+
+            if (episode) {
+              await getDanmakuById(
+                episode.episodeId,
+                title,
+                nextEpisodeIndex,
+                {
+                  animeId: savedAnimeId,
+                  animeTitle: episodesResult.bangumi.animeTitle,
+                  episodeTitle: episode.episodeTitle,
+                }
+              );
+              return;
+            }
+          }
+        } catch (error) {
+          // 继续执行后续逻辑
+        }
+      }
+
+      // 5. 执行自动搜索弹幕
+      const savedKeyword = getDanmakuSearchKeyword(title);
+      const searchKeyword = savedKeyword || title;
+
+      const searchResult = await searchAnime(searchKeyword);
+      if (!searchResult.success || searchResult.animes.length === 0) {
+        return;
+      }
+
+      // 应用智能过滤
+      const videoYear = detailRef.current?.year;
+      const filteredAnimes = filterDanmakuSources(searchResult.animes, title, videoYear);
+
+      if (filteredAnimes.length === 0) {
+        return;
+      }
+
+      // 检查是否有记忆的选择
+      let selectedAnime = filteredAnimes[0];
+      if (filteredAnimes.length > 1) {
+        const rememberedIndex = getDanmakuSourceIndex(title);
+        if (rememberedIndex !== null && rememberedIndex < filteredAnimes.length) {
+          selectedAnime = filteredAnimes[rememberedIndex];
+        }
+      }
+
+      // 获取剧集列表并匹配
+      const episodesResult = await getEpisodes(selectedAnime.animeId);
+      if (episodesResult.success && episodesResult.bangumi.episodes.length > 0) {
+        const nextVideoEpTitle = detailRef.current?.episodes_titles?.[nextEpisodeIndex];
+        const episode = matchDanmakuEpisode(nextEpisodeIndex, episodesResult.bangumi.episodes, nextVideoEpTitle);
+
+        if (episode) {
+          await getDanmakuById(
+            episode.episodeId,
+            title,
+            nextEpisodeIndex,
+            {
+              animeId: selectedAnime.animeId,
+              animeTitle: selectedAnime.animeTitle,
+              episodeTitle: episode.episodeTitle,
+              searchKeyword: searchKeyword,
+            }
+          );
+        }
+      }
+    } catch (error) {
+      // 静默处理失败
+    }
+  };
+
   // 处理上传弹幕
   const handleUploadDanmaku = async (comments: DanmakuComment[]) => {
     setDanmakuLoading(true);
@@ -3425,6 +3805,11 @@ function PlayPageClient() {
           synchronousPlayback: currentSettings.synchronousPlayback,
         });
         danmakuPluginRef.current.load();
+
+        // 触发自定义事件通知热力图更新
+        if (artPlayerRef.current) {
+          artPlayerRef.current.emit('danmaku:loaded');
+        }
 
         // 根据保存的显示状态来决定显示或隐藏弹幕
         const savedDisplayState = loadDanmakuDisplayState();
@@ -3663,6 +4048,11 @@ function PlayPageClient() {
           synchronousPlayback: currentSettings.synchronousPlayback,
         });
         danmakuPluginRef.current.load();
+
+        // 触发自定义事件通知热力图更新
+        if (artPlayerRef.current) {
+          artPlayerRef.current.emit('danmaku:loaded');
+        }
 
         // 根据保存的显示状态来决定显示或隐藏弹幕
         const savedDisplayState = loadDanmakuDisplayState();
@@ -4329,6 +4719,17 @@ function PlayPageClient() {
             (video as any).playsInline = true;
             (video as any).webkitPlaysInline = true;
 
+            // 监听Manifest加载完成事件，启动xiaoya链接定时刷新
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              console.log('[HLS] Manifest解析完成');
+
+              // 只在首次加载时启动定时器（后续刷新会在refreshXiaoyaUrl中启动）
+              if (isInitialLoadRef.current && currentXiaoyaUrlRef.current && url.includes('.m3u8')) {
+                isInitialLoadRef.current = false; // 标记已完成首次加载
+                startRefreshTimer(hls, video);
+              }
+            });
+
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               console.error('HLS Error:', event, data);
               if (data.fatal) {
@@ -4337,9 +4738,21 @@ function PlayPageClient() {
                     // 检查是否是 manifest 加载错误（通常是 403/404/CORS 错误）
                     if (data.details === 'manifestLoadError') {
                       console.log('Manifest 加载失败：可能是 403/404 或 CORS 错误');
-                      hls.destroy();
-                      // 检查是否有响应码
+
                       const statusCode = data.response?.code || data.response?.status;
+
+                      // 如果是403且是xiaoya源的m3u8，尝试自动刷新
+                      if (statusCode === 403 && currentXiaoyaUrlRef.current) {
+                        const isM3u8 = url.includes('.m3u8') || url.includes('m3u8');
+                        if (isM3u8) {
+                          console.log('[HLS错误] 检测到403，尝试刷新链接');
+                          refreshXiaoyaUrl(hls, video, false);
+                          return; // 不执行后续的错误处理
+                        }
+                      }
+
+                      // 原有的错误处理逻辑
+                      hls.destroy();
                       if (statusCode === 403) {
                         setVideoError('访问被拒绝 (403)');
                       } else if (statusCode === 404) {
@@ -5447,6 +5860,14 @@ function PlayPageClient() {
             const adjustHeatmapPosition = () => {
               const progressBar = document.querySelector('.art-control-progress') as HTMLElement;
 
+              if (!progressBar) {
+                return;
+              }
+
+              if (!$el.parentElement) {
+                return;
+              }
+
               if (progressBar && $el.parentElement) {
                 const rect = progressBar.getBoundingClientRect();
                 const parentRect = $el.parentElement.getBoundingClientRect();
@@ -5546,10 +5967,26 @@ function PlayPageClient() {
 
             // 绘制热力图
             const drawHeatmap = () => {
-              if (!artPlayerRef.current || heatmapData.length === 0) return;
+              // 检查热力图是否启用（与初始状态逻辑保持一致）
+              const storedValue = localStorage.getItem('danmaku_heatmap_enabled');
+              const enabled = storedValue !== null ? storedValue === 'true' : true; // 默认开启
+              if (!enabled) {
+                // 热力图已关闭，跳过绘制
+                return;
+              }
+
+              if (!artPlayerRef.current) {
+                return;
+              }
+
+              if (heatmapData.length === 0) {
+                return;
+              }
 
               const ctx = canvas.getContext('2d');
-              if (!ctx) return;
+              if (!ctx) {
+                return;
+              }
 
               const dpr = window.devicePixelRatio || 1;
               const width = canvas.width / dpr;
@@ -5722,7 +6159,14 @@ function PlayPageClient() {
 
             // 监听弹幕数据更新
             const updateHeatmapData = () => {
-              if (!artPlayerRef.current || !danmakuPluginRef.current) return;
+              if (!artPlayerRef.current) {
+                return;
+              }
+
+              if (!danmakuPluginRef.current) {
+                return;
+              }
+
               const duration = artPlayerRef.current.duration || 0;
 
               // 直接从弹幕插件获取弹幕数据
@@ -5739,6 +6183,11 @@ function PlayPageClient() {
 
             artPlayerRef.current.on('video:loadedmetadata', updateHeatmapData);
 
+            // 监听弹幕加载完成事件
+            artPlayerRef.current.on('danmaku:loaded', () => {
+              updateHeatmapData();
+            });
+
             // 监听弹幕插件的配置变化
             if (danmakuPluginRef.current) {
               const originalConfig = danmakuPluginRef.current.config;
@@ -5749,10 +6198,27 @@ function PlayPageClient() {
               };
             }
 
-            // 初始尝试加载
-            setTimeout(updateHeatmapData, 500);
-            setTimeout(updateHeatmapData, 1500);
-            setTimeout(updateHeatmapData, 3000);
+            // 使用轮询机制等待弹幕插件准备好（替代固定延迟）
+            let pollAttempts = 0;
+            const maxPollAttempts = 120; // 最多尝试 120 次（60 秒）
+            const pollInterval = 500; // 每 500ms 检查一次
+
+            const pollForDanmakuPlugin = () => {
+              if (danmakuPluginRef.current && danmakuPluginRef.current.option?.danmuku) {
+                // 弹幕插件已准备好且有数据
+                updateHeatmapData();
+                return; // 成功，停止轮询
+              }
+
+              pollAttempts++;
+              if (pollAttempts < maxPollAttempts) {
+                // 继续轮询
+                setTimeout(pollForDanmakuPlugin, pollInterval);
+              }
+            };
+
+            // 开始轮询
+            setTimeout(pollForDanmakuPlugin, 500);
 
             // 清理
             return () => {
@@ -6052,6 +6518,26 @@ function PlayPageClient() {
 
             // 异步执行预缓冲
             preloadNextEpisode();
+          }
+        }
+
+        // 下集弹幕预加载逻辑
+        const nextEpisodeDanmakuPreloadEnabled = typeof window !== 'undefined'
+          ? localStorage.getItem('nextEpisodeDanmakuPreload') === 'true'
+          : false;
+
+        if (nextEpisodeDanmakuPreloadEnabled) {
+          const currentTime = artPlayerRef.current?.currentTime || 0;
+          const duration = artPlayerRef.current?.duration || 0;
+          const progress = duration > 0 ? currentTime / duration : 0;
+
+          // 检查是否已经到达90%播放进度
+          if (duration > 0 && progress >= 0.9 && !nextEpisodeDanmakuPreloadTriggeredRef.current) {
+            // 标记已触发，防止重复执行
+            nextEpisodeDanmakuPreloadTriggeredRef.current = true;
+
+            // 异步执行弹幕预加载
+            preloadNextEpisodeDanmaku();
           }
         }
       });
@@ -6572,6 +7058,19 @@ function PlayPageClient() {
                           </div>
                         </>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 链接刷新提示 */}
+                {isRefreshingUrl && (
+                  <div className='absolute inset-0 flex items-center justify-center bg-black/50 z-50 pointer-events-none'>
+                    <div className='bg-black/80 text-white px-6 py-3 rounded-lg flex items-center gap-3 backdrop-blur-sm border border-green-500/30'>
+                      <svg className='animate-spin h-5 w-5' viewBox='0 0 24 24'>
+                        <circle className='opacity-25' cx='12' cy='12' r='10' stroke='currentColor' strokeWidth='4' fill='none'/>
+                        <path className='opacity-75' fill='currentColor' d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'/>
+                      </svg>
+                      <span>正在刷新链接...</span>
                     </div>
                   </div>
                 )}

@@ -11,6 +11,30 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
 	{
+    version: '208.0.0',
+    date: '2026-01-16',
+	added: [
+		"ai问片增加非流式响应",
+		"新增下集弹幕预加载",
+		"openlist和小雅增加禁用预览方式播放",
+		"管理配置增加主动重载",
+		"emby增加排序功能",
+		"播放页面标题自动跟随影片标题",
+		"emby数据增加导入导出"
+    ],
+    changed: [
+		"小雅现在会自动刷新播放链接",
+		"缓冲策略从下拉框改为滑块",
+		"openlist扫描前增加tmdbkey配置检测",
+		"优化firefox下的弹幕热力图",
+		"小雅获取剧集时刷新文件夹"
+    ],
+    fixed: [
+		"修复redis方式数据导入报错",
+		"修复小雅不过滤空url"
+	]
+	},
+	{
     version: '207.0.0',
     date: '2026-01-13',
 	added: [

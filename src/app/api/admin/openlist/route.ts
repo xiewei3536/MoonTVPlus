@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { action, Enabled, URL, Username, Password, RootPaths, OfflineDownloadPath, ScanInterval, ScanMode } = body;
+    const { action, Enabled, URL, Username, Password, RootPaths, OfflineDownloadPath, ScanInterval, ScanMode, DisableVideoPreview } = body;
 
     const authInfo = getAuthInfoFromCookie(request);
     if (!authInfo || !authInfo.username) {
@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
           ResourceCount: adminConfig.OpenListConfig?.ResourceCount,
           ScanInterval: 0,
           ScanMode: ScanMode || 'hybrid',
+          DisableVideoPreview: DisableVideoPreview || false,
         };
 
         await db.saveAdminConfig(adminConfig);
@@ -118,6 +119,7 @@ export async function POST(request: NextRequest) {
         ResourceCount: adminConfig.OpenListConfig?.ResourceCount,
         ScanInterval: scanInterval,
         ScanMode: ScanMode || 'hybrid',
+        DisableVideoPreview: DisableVideoPreview || false,
       };
 
       await db.saveAdminConfig(adminConfig);

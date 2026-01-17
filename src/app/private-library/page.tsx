@@ -4,7 +4,8 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useRef, useMemo } from 'react';
-import { Film } from 'lucide-react';
+import { Film, ArrowUpDown, ArrowDownWideNarrow, ArrowUpNarrowWide } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
 import PageLayout from '@/components/PageLayout';
@@ -74,6 +75,13 @@ export default function PrivateLibraryPage() {
   const [embyViews, setEmbyViews] = useState<EmbyView[]>([]);
   const [selectedView, setSelectedView] = useState<string>('all');
   const [loadingViews, setLoadingViews] = useState(false);
+  // Emby排序状态
+  const [sortBy, setSortBy] = useState<string>('SortName');
+  const [sortOrder, setSortOrder] = useState<'Ascending' | 'Descending'>('Ascending');
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const [sortDropdownPosition, setSortDropdownPosition] = useState<{ x: number; y: number; width: number }>({ x: 0, y: 0, width: 0 });
+  const sortButtonRef = useRef<HTMLDivElement | null>(null);
+  const sortDropdownRef = useRef<HTMLDivElement | null>(null);
   // 小雅相关状态
   const [xiaoyaPath, setXiaoyaPath] = useState<string>('/');
   const [xiaoyaFolders, setXiaoyaFolders] = useState<Array<{ name: string; path: string }>>([]);
@@ -217,6 +225,20 @@ export default function PrivateLibraryPage() {
     isFetchingRef.current = false;
   }, [selectedView]);
 
+  // 切换排序时重置状态（但不在初始化时执行）
+  useEffect(() => {
+    if (!isInitializedRef.current) return;
+    if (sourceType !== 'emby') return;
+
+    setPage(1);
+    setVideos([]);
+    setHasMore(true);
+    setError('');
+    setLoading(false);
+    setLoadingMore(false);
+    isFetchingRef.current = false;
+  }, [sortBy, sortOrder, sourceType]);
+
   // 获取 Emby 媒体库列表
   useEffect(() => {
     if (sourceType !== 'emby' || !embyKey) return;
@@ -290,6 +312,101 @@ export default function PrivateLibraryPage() {
     scrollContainerRef.current.scrollLeft = scrollLeftRef.current - walk;
   };
 
+  // 排序相关函数
+  const sortOptions = [
+    { label: '名称', value: 'SortName' },
+    { label: '加入时间', value: 'DateCreated' },
+    { label: '发行日期', value: 'PremiereDate' },
+    { label: '年份', value: 'ProductionYear' },
+    { label: '评分', value: 'CommunityRating' },
+  ];
+
+  const getSortDisplayText = () => {
+    const option = sortOptions.find((opt) => opt.value === sortBy);
+    return option?.label || '排序';
+  };
+
+  const isDefaultSort = () => {
+    return sortBy === 'SortName' && sortOrder === 'Ascending';
+  };
+
+  const calculateSortDropdownPosition = () => {
+    const element = sortButtonRef.current;
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const isMobile = viewportWidth < 768;
+
+      let x = rect.left;
+      const minWidth = 200;
+      let dropdownWidth = Math.max(rect.width, minWidth);
+      let useFixedWidth = false;
+
+      if (isMobile) {
+        const padding = 16;
+        const maxWidth = viewportWidth - padding * 2;
+        dropdownWidth = Math.min(dropdownWidth, maxWidth);
+        useFixedWidth = true;
+
+        if (x + dropdownWidth > viewportWidth - padding) {
+          x = viewportWidth - dropdownWidth - padding;
+        }
+        if (x < padding) {
+          x = padding;
+        }
+      }
+
+      setSortDropdownPosition({ x, y: rect.bottom + 4, width: useFixedWidth ? dropdownWidth : rect.width });
+    }
+  };
+
+  const handleSortButtonClick = () => {
+    if (showSortDropdown) {
+      setShowSortDropdown(false);
+    } else {
+      setShowSortDropdown(true);
+      calculateSortDropdownPosition();
+    }
+  };
+
+  const handleSortOptionSelect = (value: string) => {
+    setSortBy(value);
+    setShowSortDropdown(false);
+  };
+
+  const toggleSortOrder = () => {
+    setSortOrder(sortOrder === 'Ascending' ? 'Descending' : 'Ascending');
+  };
+
+  // 点击外部关闭排序下拉框
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        sortDropdownRef.current &&
+        !sortDropdownRef.current.contains(event.target as Node) &&
+        sortButtonRef.current &&
+        !sortButtonRef.current.contains(event.target as Node)
+      ) {
+        setShowSortDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // 滚动时关闭排序下拉框
+  useEffect(() => {
+    const handleScroll = () => {
+      if (showSortDropdown) {
+        setShowSortDropdown(false);
+      }
+    };
+    document.body.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      document.body.removeEventListener('scroll', handleScroll);
+    };
+  }, [showSortDropdown]);
+
   // 加载数据的函数
   useEffect(() => {
     const fetchVideos = async () => {
@@ -335,7 +452,7 @@ export default function PrivateLibraryPage() {
           ? `/api/openlist/list?page=${page}&pageSize=${pageSize}`
           : sourceType === 'xiaoya'
           ? `/api/xiaoya/browse?path=${encodeURIComponent(xiaoyaPath)}`
-          : `/api/emby/list?page=${page}&pageSize=${pageSize}${selectedView !== 'all' ? `&parentId=${selectedView}` : ''}&embyKey=${embyKey}`;
+          : `/api/emby/list?page=${page}&pageSize=${pageSize}${selectedView !== 'all' ? `&parentId=${selectedView}` : ''}&embyKey=${embyKey}&sortBy=${sortBy}&sortOrder=${sortOrder}`;
 
         const response = await fetch(endpoint, { signal: abortController.signal });
 
@@ -404,7 +521,7 @@ export default function PrivateLibraryPage() {
         abortControllerRef.current.abort();
       }
     };
-  }, [sourceType, embyKey, page, selectedView, xiaoyaPath, runtimeConfig]);
+  }, [sourceType, embyKey, page, selectedView, xiaoyaPath, runtimeConfig, sortBy, sortOrder]);
 
   const handleVideoClick = (video: Video) => {
     // 构建source参数
@@ -590,6 +707,99 @@ export default function PrivateLibraryPage() {
               </div>
             ) : null}
           </div>
+        )}
+
+        {/* Emby 排序选择器 */}
+        {sourceType === 'emby' && (
+          <div className='mb-6'>
+            <div className='text-xs text-gray-500 dark:text-gray-400 mb-2 px-4'>
+              排序
+            </div>
+            <div className='px-4'>
+              <div className='relative inline-flex rounded-full p-0.5 sm:p-1 bg-transparent gap-1 sm:gap-2'>
+                {/* 排序字段选择 */}
+                <div ref={sortButtonRef} className='relative'>
+                  <button
+                    onClick={handleSortButtonClick}
+                    className={`relative z-10 px-1.5 py-0.5 sm:px-2 sm:py-1 md:px-4 md:py-2 text-xs sm:text-sm font-medium rounded-full transition-all duration-200 whitespace-nowrap ${
+                      showSortDropdown
+                        ? isDefaultSort()
+                          ? 'text-gray-900 dark:text-gray-100 cursor-default'
+                          : 'text-green-600 dark:text-green-400 cursor-default'
+                        : isDefaultSort()
+                          ? 'text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 cursor-pointer'
+                          : 'text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 cursor-pointer'
+                    }`}
+                  >
+                    <span>{getSortDisplayText()}</span>
+                    <svg
+                      className={`inline-block w-2.5 h-2.5 sm:w-3 sm:h-3 ml-0.5 sm:ml-1 transition-transform duration-200 ${
+                        showSortDropdown ? 'rotate-180' : ''
+                      }`}
+                      fill='none'
+                      stroke='currentColor'
+                      viewBox='0 0 24 24'
+                    >
+                      <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M19 9l-7 7-7-7' />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* 排序方向切换 */}
+                <div className='relative'>
+                  <button
+                    onClick={toggleSortOrder}
+                    className={`relative z-10 px-1.5 py-0.5 sm:px-2 sm:py-1 md:px-4 md:py-2 text-xs sm:text-sm font-medium rounded-full transition-all duration-200 whitespace-nowrap ${
+                      isDefaultSort()
+                        ? 'text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 cursor-pointer'
+                        : 'text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 cursor-pointer'
+                    }`}
+                    aria-label={sortOrder === 'Ascending' ? '升序' : '降序'}
+                  >
+                    {sortOrder === 'Ascending' ? (
+                      <ArrowUpNarrowWide className='inline-block w-4 h-4 sm:w-4 sm:h-4' />
+                    ) : (
+                      <ArrowDownWideNarrow className='inline-block w-4 h-4 sm:w-4 sm:h-4' />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 排序下拉框 Portal */}
+        {mounted && showSortDropdown && createPortal(
+          <div
+            ref={sortDropdownRef}
+            className='fixed z-[9999] bg-white/95 dark:bg-gray-800/95 rounded-xl border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-sm max-h-[50vh] flex flex-col'
+            style={{
+              left: `${sortDropdownPosition.x}px`,
+              top: `${sortDropdownPosition.y}px`,
+              minWidth: `${Math.max(sortDropdownPosition.width, 200)}px`,
+              maxWidth: '300px',
+              position: 'fixed',
+            }}
+          >
+            <div className='p-2 sm:p-4 overflow-y-auto flex-1 min-h-0'>
+              <div className='grid grid-cols-2 gap-1 sm:gap-2'>
+                {sortOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => handleSortOptionSelect(option.value)}
+                    className={`px-2 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm rounded-lg transition-all duration-200 text-left ${
+                      sortBy === option.value
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-700'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-700/80'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
         )}
 
         {error && (

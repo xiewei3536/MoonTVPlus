@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
         Token: configData.Token,
         Username: configData.Username,
         Password: configData.Password,
+        DisableVideoPreview: configData.DisableVideoPreview || false,
       };
 
       await db.saveAdminConfig(config);

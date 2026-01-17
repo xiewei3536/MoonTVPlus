@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getConfig } from '@/lib/config';
 import { startOpenListRefresh } from '@/lib/openlist-refresh';
 
 export const runtime = 'nodejs';
@@ -17,6 +18,15 @@ export async function POST(request: NextRequest) {
     const authInfo = getAuthInfoFromCookie(request);
     if (!authInfo || !authInfo.username) {
       return NextResponse.json({ error: '未授权' }, { status: 401 });
+    }
+
+    // 检查 TMDB API Key 是否配置
+    const config = await getConfig();
+    if (!config.SiteConfig.TMDBApiKey || config.SiteConfig.TMDBApiKey.trim() === '') {
+      return NextResponse.json(
+        { error: '请先在站点配置中配置 TMDB API Key' },
+        { status: 400 }
+      );
     }
 
     // 获取请求参数

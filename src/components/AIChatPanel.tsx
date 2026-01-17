@@ -152,63 +152,82 @@ export default function AIChatPanel({
         body: JSON.stringify({
           message: userMessage,
           context,
-          history: messages.filter((m) => m.role !== 'assistant' || m.content !== welcomeMessage),
+    history: messages.filter((m) => m.role !== 'assistant' || m.content !== welcomeMessage),
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        const errorMsg = errorData.error || errorData.details || `请求失败 (${response.status})`;
+     const errorMsg = errorData.error || errorData.details || `请求失败 (${response.status})`;
         throw new Error(errorMsg);
       }
 
-      // 处理流式响应
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
+      // 检查响应类型：流式(text/event-stream)或非流式(application/json)
+      const contentType = response.headers.get('content-type');
 
-      if (!reader) {
-        throw new Error('无法读取响应流');
-      }
+      if (contentType?.includes('text/event-stream')) {
+        // 处理流式响应
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
 
-      let assistantMessage = '';
+        if (!reader) {
+          throw new Error('无法读取响应流');
+        }
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        let assistantMessage = '';
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n').filter((line) => line.trim() !== '');
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n').filter((line) => line.trim() !== '');
 
-            if (data === '[DONE]') {
-              break;
-            }
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
 
-            try {
-              const json = JSON.parse(data);
-              const text = json.text || '';
-
-              if (text) {
-                assistantMessage += text;
-
-                // 更新最后一条消息
-                setMessages((prev) => {
-                  const newMessages = [...prev];
-                  newMessages[newMessages.length - 1] = {
-                    role: 'assistant',
-                    content: assistantMessage,
-                  };
-                  return newMessages;
-                });
+              if (data === '[DONE]') {
+                break;
               }
-            } catch (e) {
-              console.error('解析SSE数据失败:', e);
+
+              try {
+                const json = JSON.parse(data);
+                const text = json.text || '';
+
+                if (text) {
+                  assistantMessage += text;
+
+              // 更新最后一条消息
+                  setMessages((prev) => {
+                    const newMessages = [...prev];
+                    newMessages[newMessages.length - 1] = {
+                      role: 'assistant',
+                      content: assistantMessage,
+               };
+                    return newMessages;
+                  });
+                }
+              } catch (e) {
+                console.error('解析SSE数据失败:', e);
+              }
             }
           }
         }
+      } else {
+        // 处理非流式响应
+        const data = await response.json();
+        const content = data.content || '';
+
+        // 更新最后一条消息为完整响应
+        setMessages((prev) => {
+          const newMessages = [...prev];
+          newMessages[newMessages.length - 1] = {
+            role: 'assistant',
+            content: content,
+          };
+          return newMessages;
+        });
       }
     } catch (error) {
       console.error('发送消息失败:', error);
