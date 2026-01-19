@@ -140,6 +140,32 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   // 集数过滤设置弹窗状态
   const [showFilterSettings, setShowFilterSettings] = useState<boolean>(false);
 
+  // 读取本地"优选和测速"开关，默认开启
+  const [optimizationEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('enableOptimization');
+      if (saved !== null) {
+        try {
+          return JSON.parse(saved);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return true;
+  });
+
+  // 读取测速超时设置，默认4秒
+  const [speedTestTimeout] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('speedTestTimeout');
+      if (saved !== null) {
+        return Number(saved);
+      }
+    }
+    return 4000;
+  });
+
   // 集数过滤逻辑
   const isEpisodeFiltered = useCallback(
     (episodeNumber: number): boolean => {
@@ -205,7 +231,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     setAttemptedSources((prev) => new Set(prev).add(sourceKey));
 
     try {
-      const info = await getVideoResolutionFromM3u8(episodeUrl);
+      const info = await getVideoResolutionFromM3u8(episodeUrl, speedTestTimeout);
       setVideoInfoMap((prev) => new Map(prev).set(sourceKey, info));
     } catch (error) {
       // 失败时保存错误状态
@@ -219,7 +245,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         })
       );
     }
-  }, []);
+  }, [speedTestTimeout]);
 
   // 当有预计算结果时，先合并到videoInfoMap中
   useEffect(() => {
@@ -251,21 +277,6 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       });
     }
   }, [precomputedVideoInfo]);
-
-  // 读取本地"优选和测速"开关，默认开启
-  const [optimizationEnabled] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('enableOptimization');
-      if (saved !== null) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    return true;
-  });
 
   // 当切换到换源tab并且有源数据时，异步获取视频信息 - 移除 attemptedSources 依赖避免循环触发
   useEffect(() => {

@@ -1020,7 +1020,7 @@ function PlayPageClient() {
 
                   if (detCacheAge < detCacheMaxAge && data && data.backdrop) {
                     console.log('使用缓存的TMDB详情数据');
-                    setTmdbBackdrop(data.backdrop);
+                    setTmdbBackdrop(processImageUrl(data.backdrop));
 
                     // 如果没有豆瓣ID，使用TMDb数据补充
                     if (!videoDoubanId || videoDoubanId === 0) {
@@ -1054,7 +1054,7 @@ function PlayPageClient() {
         const result = await response.json();
 
         if (result.backdrop) {
-          setTmdbBackdrop(result.backdrop);
+          setTmdbBackdrop(processImageUrl(result.backdrop));
 
           // 如果没有豆瓣ID，使用TMDb数据补充
           if (!videoDoubanId || videoDoubanId === 0) {
@@ -3279,7 +3279,7 @@ function PlayPageClient() {
             finalTitle = correction.title;
           }
           if (correction.posterPath) {
-            finalCover = getTMDBImageUrl(correction.posterPath);
+            finalCover = processImageUrl(getTMDBImageUrl(correction.posterPath));
           }
           if (correction.overview) {
             finalDesc = correction.overview;
@@ -4424,7 +4424,7 @@ function PlayPageClient() {
         setVideoTitle(correction.title);
       }
       if (correction.posterPath) {
-        const fullPosterUrl = getTMDBImageUrl(correction.posterPath);
+        const fullPosterUrl = processImageUrl(getTMDBImageUrl(correction.posterPath));
         setVideoCover(fullPosterUrl);
       }
       if (correction.overview) {
@@ -7856,7 +7856,7 @@ const applyCorrection = (detail: SearchResult, correction: any): SearchResult =>
   return {
     ...detail,
     title: correction.title || detail.title,
-    poster: correction.posterPath ? getTMDBImageUrl(correction.posterPath) : detail.poster,
+    poster: correction.posterPath ? processImageUrl(getTMDBImageUrl(correction.posterPath)) : detail.poster,
     year: correction.releaseDate || detail.year,
     desc: correction.overview || detail.desc,
     rating: correction.voteAverage || detail.rating,

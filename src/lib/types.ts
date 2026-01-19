@@ -140,7 +140,15 @@ export interface IStorage {
     favorite_migrated?: boolean;
     skip_migrated?: boolean;
     last_movie_request_time?: number;
+    email?: string; // 用户邮箱
+    emailNotifications?: boolean; // 是否接收邮件通知
   } | null>;
+
+  // 用户邮箱相关
+  getUserEmail?(userName: string): Promise<string | null>;
+  setUserEmail?(userName: string, email: string): Promise<void>;
+  getEmailNotificationPreference?(userName: string): Promise<boolean>;
+  setEmailNotificationPreference?(userName: string, enabled: boolean): Promise<void>;
 }
 
 // 搜索结果数据结构

@@ -99,6 +99,7 @@ export async function startOpenListRefresh(clearMetaInfo: boolean = false): Prom
 
   const tmdbApiKey = config.SiteConfig.TMDBApiKey;
   const tmdbProxy = config.SiteConfig.TMDBProxy;
+  const tmdbReverseProxy = config.SiteConfig.TMDBReverseProxy;
 
   if (!tmdbApiKey) {
     throw new Error('TMDB API Key 未配置');
@@ -124,6 +125,7 @@ export async function startOpenListRefresh(clearMetaInfo: boolean = false): Prom
     rootPaths,
     tmdbApiKey,
     tmdbProxy,
+    tmdbReverseProxy,
     openListConfig.Username,
     openListConfig.Password,
     clearMetaInfo,
@@ -145,6 +147,7 @@ async function performMultiRootScan(
   rootPaths: string[],
   tmdbApiKey: string,
   tmdbProxy: string | undefined,
+  tmdbReverseProxy: string | undefined,
   username: string,
   password: string,
   clearMetaInfo: boolean,
@@ -161,6 +164,7 @@ async function performMultiRootScan(
         rootPath,
         tmdbApiKey,
         tmdbProxy,
+        tmdbReverseProxy,
         username,
         password,
         clearMetaInfo && i === 0, // 只在第一个根目录时清除
@@ -182,6 +186,7 @@ async function performScan(
   rootPath: string,
   tmdbApiKey: string,
   tmdbProxy?: string,
+  tmdbReverseProxy?: string,
   username?: string,
   password?: string,
   clearMetaInfo?: boolean,
@@ -288,7 +293,7 @@ async function performScan(
           console.log(`[OpenList Refresh] 种子库模式 - 文件夹: ${folder.name}`);
           console.log(`[OpenList Refresh] 解析结果 - 标题: ${searchQuery}, 季度: ${seasonNumber}, 年份: ${year}`);
 
-          searchResult = await searchTMDB(tmdbApiKey, searchQuery, tmdbProxy, year || undefined);
+          searchResult = await searchTMDB(tmdbApiKey, searchQuery, tmdbProxy, year || undefined, tmdbReverseProxy);
         }
 
         if (scanMode === 'name' || (scanMode === 'hybrid' && (!searchResult || searchResult.code !== 200 || !searchResult.result))) {
@@ -300,7 +305,7 @@ async function performScan(
           console.log(`[OpenList Refresh] 名字匹配模式 - 文件夹: ${folder.name}`);
           console.log(`[OpenList Refresh] 清理后标题: ${searchQuery}, 季度: ${seasonNumber}, 年份: ${year}`);
 
-          searchResult = await searchTMDB(tmdbApiKey, searchQuery, tmdbProxy, year || undefined);
+          searchResult = await searchTMDB(tmdbApiKey, searchQuery, tmdbProxy, year || undefined, tmdbReverseProxy);
         }
 
         if (searchResult.code === 200 && searchResult.result) {
@@ -325,7 +330,8 @@ async function performScan(
                 tmdbApiKey,
                 result.id,
                 seasonNumber,
-                tmdbProxy
+                tmdbProxy,
+                tmdbReverseProxy
               );
 
               if (seasonDetails.code === 200 && seasonDetails.season) {

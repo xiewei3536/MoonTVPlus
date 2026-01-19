@@ -13,6 +13,7 @@ import {
 import { getDoubanCategories } from '@/lib/douban.client';
 import { getTMDBImageUrl, TMDBItem } from '@/lib/tmdb.client';
 import { DoubanItem } from '@/lib/types';
+import { processImageUrl } from '@/lib/utils';
 
 import ContinueWatching from '@/components/ContinueWatching';
 import PageLayout from '@/components/PageLayout';
@@ -516,7 +517,7 @@ function HomeClient() {
                 >
                   <VideoCard
                     title={item.title}
-                    poster={getTMDBImageUrl(item.poster_path)}
+                    poster={processImageUrl(getTMDBImageUrl(item.poster_path))}
                     year={item.release_date?.split('-')?.[0] || ''}
                     rate={
                       item.vote_average && item.vote_average > 0

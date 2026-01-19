@@ -53,8 +53,8 @@ export default function BannerCarousel({ autoPlayInterval = 5000 }: BannerCarous
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return processImageUrl(path);
     }
-    // 否则使用TMDB的URL拼接
-    return getTMDBImageUrl(path, 'original');
+    // 否则使用TMDB的URL拼接，并通过processImageUrl处理
+    return processImageUrl(getTMDBImageUrl(path, 'original'));
   };
 
   // 获取视频URL（处理豆瓣视频代理）

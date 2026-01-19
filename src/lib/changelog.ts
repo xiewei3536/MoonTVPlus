@@ -11,6 +11,29 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
 	{
+    version: '209.0.0',
+    date: '2026-01-18',
+	added: [
+		"新增收藏更新邮件发送",
+		"新增测速超时设置",
+		"tmdb详情支持查看季度信息，集数信息",
+		"tmdb支持设置反代",
+		"tmdb图片支持自定义设置url",
+		"豆瓣图片增加百度图片代理"
+    ],
+    changed: [
+		"统一upstash和redis数据层",
+		"优化docker镜像大小",
+		"Cloudflare Turnstile开启前检测sitekey和Secretkey不能为空",
+		"豆瓣反爬增强",
+		"竖向videocard的source name调整到海报右下角",
+		"取消小雅获取剧集强制刷新",
+		"本地设置选项卡增加图标"
+    ],
+    fixed: [
+		"修复详情不应用豆瓣图片策略"
+	]
+	},{
     version: '208.0.0',
     date: '2026-01-16',
 	added: [

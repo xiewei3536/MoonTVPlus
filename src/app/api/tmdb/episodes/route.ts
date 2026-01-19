@@ -4,15 +4,15 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
-import { getNextApiKey } from '@/lib/tmdb.client';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import nodeFetch from 'node-fetch';
+import { getNextApiKey } from '@/lib/tmdb.client';
 
 export const runtime = 'nodejs';
 
 /**
- * GET /api/tmdb/search?query=xxx
- * 搜索TMDB，返回多个结果供用户选择
+ * GET /api/tmdb/episodes?id=xxx&season=xxx
+ * 获取电视剧季度的集数详情（带图片）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -22,10 +22,11 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const query = searchParams.get('query');
+    const id = searchParams.get('id');
+    const season = searchParams.get('season');
 
-    if (!query) {
-      return NextResponse.json({ error: '缺少查询参数' }, { status: 400 });
+    if (!id || !season) {
+      return NextResponse.json({ error: '缺少参数' }, { status: 400 });
     }
 
     const config = await getConfig();
@@ -33,18 +34,18 @@ export async function GET(request: NextRequest) {
     const tmdbProxy = config.SiteConfig.TMDBProxy;
     const tmdbReverseProxy = config.SiteConfig.TMDBReverseProxy;
 
-    const actualKey = getNextApiKey(tmdbApiKey || '');
+    if (!tmdbApiKey) {
+      return NextResponse.json({ error: 'TMDB API Key 未配置' }, { status: 400 });
+    }
+
+    const actualKey = getNextApiKey(tmdbApiKey);
     if (!actualKey) {
-      return NextResponse.json(
-        { error: 'TMDB API Key 未配置' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'TMDB API Key 无效' }, { status: 400 });
     }
 
     // 使用反代代理或默认 Base URL
     const baseUrl = tmdbReverseProxy || 'https://api.themoviedb.org';
-    // 使用 multi search 同时搜索电影和电视剧
-    const url = `${baseUrl}/3/search/multi?api_key=${actualKey}&language=zh-CN&query=${encodeURIComponent(query)}&page=1`;
+    const url = `${baseUrl}/3/tv/${id}/season/${season}?api_key=${actualKey}&language=zh-CN`;
 
     const fetchOptions: any = tmdbProxy
       ? {
@@ -58,33 +59,19 @@ export async function GET(request: NextRequest) {
           signal: AbortSignal.timeout(15000),
         };
 
-    // 使用 node-fetch 而不是原生 fetch
     const response = await nodeFetch(url, fetchOptions);
 
     if (!response.ok) {
-      console.error('TMDB 搜索失败:', response.status, response.statusText);
-      return NextResponse.json(
-        { error: 'TMDB 搜索失败', code: response.status },
-        { status: response.status }
-      );
+      return NextResponse.json({ error: '获取失败' }, { status: response.status });
     }
 
     const data: any = await response.json();
 
-    // 过滤出电影和电视剧
-    const validResults = data.results.filter(
-      (item: any) => item.media_type === 'movie' || item.media_type === 'tv'
-    );
-
-    return NextResponse.json({
-      success: true,
-      results: validResults,
-      total: validResults.length,
-    });
+    return NextResponse.json(data);
   } catch (error) {
-    console.error('TMDB搜索失败:', error);
+    console.error('获取集数详情失败:', error);
     return NextResponse.json(
-      { error: '搜索失败', details: (error as Error).message },
+      { error: '获取失败', details: (error as Error).message },
       { status: 500 }
     );
   }

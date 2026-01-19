@@ -56,6 +56,7 @@ export async function GET() {
       // 使用TMDB数据源（默认）
       const apiKey = config.SiteConfig?.TMDBApiKey;
       const proxy = config.SiteConfig?.TMDBProxy;
+      const reverseProxy = config.SiteConfig?.TMDBReverseProxy;
 
       if (!apiKey) {
         return NextResponse.json(
@@ -65,13 +66,13 @@ export async function GET() {
       }
 
       // 获取热门内容
-      result = await getTMDBTrendingContent(apiKey, proxy);
+      result = await getTMDBTrendingContent(apiKey, proxy, reverseProxy);
 
       // 为每个项目获取视频数据
       if (result.code === 200 && result.list) {
         const itemsWithVideos = await Promise.all(
           result.list.map(async (item: any) => {
-            const videoKey = await getTMDBVideos(apiKey, item.media_type, item.id, proxy);
+            const videoKey = await getTMDBVideos(apiKey, item.media_type, item.id, proxy, reverseProxy);
             return { ...item, video_key: videoKey };
           })
         );

@@ -4,6 +4,9 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import nodeFetch from 'node-fetch';
 import { getNextApiKey } from './tmdb.client';
 
+// TMDB API 默认 Base URL（不包含 /3/，由程序拼接）
+const DEFAULT_TMDB_BASE_URL = 'https://api.themoviedb.org';
+
 export interface TMDBSearchResult {
   id: number;
   title?: string; // 电影
@@ -30,7 +33,8 @@ export async function searchTMDB(
   apiKey: string,
   query: string,
   proxy?: string,
-  year?: number
+  year?: number,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; result: TMDBSearchResult | null }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -38,8 +42,9 @@ export async function searchTMDB(
       return { code: 400, result: null };
     }
 
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
     // 使用 multi search 同时搜索电影和电视剧
-    let url = `https://api.themoviedb.org/3/search/multi?api_key=${actualKey}&language=zh-CN&query=${encodeURIComponent(query)}&page=1`;
+    let url = `${baseUrl}/3/search/multi?api_key=${actualKey}&language=zh-CN&query=${encodeURIComponent(query)}&page=1`;
 
     // 如果提供了年份，添加到搜索参数中
     if (year) {
@@ -120,7 +125,8 @@ interface TMDBTVDetails {
 export async function getTVSeasons(
   apiKey: string,
   tvId: number,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; seasons: TMDBSeasonInfo[] | null }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -128,7 +134,8 @@ export async function getTVSeasons(
       return { code: 400, seasons: null };
     }
 
-    const url = `https://api.themoviedb.org/3/tv/${tvId}?api_key=${actualKey}&language=zh-CN`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/tv/${tvId}?api_key=${actualKey}&language=zh-CN`;
 
     const fetchOptions: any = proxy
       ? {
@@ -171,7 +178,8 @@ export async function getTVSeasonDetails(
   apiKey: string,
   tvId: number,
   seasonNumber: number,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; season: TMDBSeasonInfo | null }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -179,7 +187,8 @@ export async function getTVSeasonDetails(
       return { code: 400, season: null };
     }
 
-    const url = `https://api.themoviedb.org/3/tv/${tvId}/season/${seasonNumber}?api_key=${actualKey}&language=zh-CN`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/tv/${tvId}/season/${seasonNumber}?api_key=${actualKey}&language=zh-CN`;
 
     const fetchOptions: any = proxy
       ? {
@@ -226,5 +235,8 @@ export function getTMDBImageUrl(
     return path;
   }
 
-  return `https://image.tmdb.org/t/p/${size}${path}`;
+  const baseUrl = typeof window !== 'undefined'
+    ? localStorage.getItem('tmdbImageBaseUrl') || 'https://image.tmdb.org'
+    : 'https://image.tmdb.org';
+  return `${baseUrl}/t/p/${size}${path}`;
 }

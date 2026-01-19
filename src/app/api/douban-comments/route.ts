@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
           'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         Referer: 'https://movie.douban.com/',
+		Cookie: 'bid=sadjkfhadskbfasdfdjh'
       },
     });
 

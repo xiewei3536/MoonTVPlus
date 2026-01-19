@@ -8,6 +8,8 @@ import { fetchVideoDetail } from '@/lib/fetchVideoDetail';
 import { refreshLiveChannels } from '@/lib/live';
 import { startOpenListRefresh } from '@/lib/openlist-refresh';
 import { SearchResult } from '@/lib/types';
+import { EmailService } from '@/lib/email.service';
+import { getBatchFavoriteUpdateEmailTemplate, FavoriteUpdate } from '@/lib/email.templates';
 
 export const runtime = 'nodejs';
 
@@ -135,6 +137,19 @@ async function refreshRecordAndFavorites() {
     if (process.env.USERNAME && !users.includes(process.env.USERNAME)) {
       users.push(process.env.USERNAME);
     }
+
+    // 环境变量控制是否跳过特定源（默认为 false，即默认跳过）
+    const includeSpecialSources = process.env.CRON_INCLUDE_SPECIAL_SOURCES === 'true';
+
+    // 检查是否应该跳过该源
+    const shouldSkipSource = (source: string): boolean => {
+      if (includeSpecialSources) {
+        return false; // 如果开启了包含特殊源，则不跳过任何源
+      }
+      // 默认跳过 emby 开头、openlist、xiaoya 和 live 开头的源
+      return source.startsWith('emby') || source === 'openlist' || source === 'xiaoya' || source.startsWith('live');
+    };
+
     // 函数级缓存：key 为 `${source}+${id}`，值为 Promise<VideoDetail | null>
     const detailCache = new Map<string, Promise<SearchResult | null>>();
 
@@ -184,6 +199,13 @@ async function refreshRecordAndFavorites() {
               continue;
             }
 
+            // 检查是否应该跳过该源
+            if (shouldSkipSource(source)) {
+              console.log(`跳过播放记录 (源被过滤): ${key}`);
+              processedRecords++;
+              continue;
+            }
+
             const detail = await getDetail(source, id, record.title);
             if (!detail) {
               console.warn(`跳过无法获取详情的播放记录: ${key}`);
@@ -230,12 +252,20 @@ async function refreshRecordAndFavorites() {
         const totalFavorites = Object.keys(favorites).length;
         let processedFavorites = 0;
         const now = Date.now();
+        const userUpdates: FavoriteUpdate[] = []; // 收集该用户的所有更新
 
         for (const [key, fav] of Object.entries(favorites)) {
           try {
             const [source, id] = key.split('+');
             if (!source || !id) {
               console.warn(`跳过无效的收藏键: ${key}`);
+              continue;
+            }
+
+            // 检查是否应该跳过该源
+            if (shouldSkipSource(source)) {
+              console.log(`跳过收藏 (源被过滤): ${key}`);
+              processedFavorites++;
               continue;
             }
 
@@ -279,6 +309,17 @@ async function refreshRecordAndFavorites() {
 
               await storage.addNotification(user, notification);
               console.log(`已为用户 ${user} 创建收藏更新通知: ${fav.title}`);
+
+              // 收集更新信息用于邮件
+              const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+              const playUrl = `${siteUrl}/play?source=${source}&id=${id}`;
+              userUpdates.push({
+                title: fav.title,
+                oldEpisodes: fav.total_episodes,
+                newEpisodes: favEpisodeCount,
+                url: playUrl,
+                cover: favDetail.poster || fav.cover,
+              });
             }
 
             processedFavorites++;
@@ -289,6 +330,42 @@ async function refreshRecordAndFavorites() {
         }
 
         console.log(`收藏处理完成: ${processedFavorites}/${totalFavorites}`);
+
+        // 如果有更新，发送汇总邮件
+        if (userUpdates.length > 0) {
+          try {
+            const userEmail = storage.getUserEmail ? await storage.getUserEmail(user) : null;
+            const emailNotifications = storage.getEmailNotificationPreference
+              ? await storage.getEmailNotificationPreference(user)
+              : false;
+
+            if (userEmail && emailNotifications) {
+              const config = await getConfig();
+              const emailConfig = config?.EmailConfig;
+
+              if (emailConfig?.enabled) {
+                const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+                const siteName = config?.SiteConfig?.SiteName || 'MoonTVPlus';
+
+                await EmailService.send(emailConfig, {
+                  to: userEmail,
+                  subject: `📺 收藏更新汇总 - ${userUpdates.length} 部影片有更新`,
+                  html: getBatchFavoriteUpdateEmailTemplate(
+                    user,
+                    userUpdates,
+                    siteUrl,
+                    siteName
+                  ),
+                });
+
+                console.log(`邮件汇总已发送至: ${userEmail} (${userUpdates.length} 个更新)`);
+              }
+            }
+          } catch (emailError) {
+            console.error(`发送邮件汇总失败 (${user}):`, emailError);
+            // 邮件发送失败不影响主流程
+          }
+        }
       } catch (err) {
         console.error(`获取用户收藏失败 (${user}):`, err);
       }

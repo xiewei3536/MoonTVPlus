@@ -3,6 +3,9 @@
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import nodeFetch from 'node-fetch';
 
+// TMDB API 默认 Base URL（不包含 /3/，由程序拼接）
+const DEFAULT_TMDB_BASE_URL = 'https://api.themoviedb.org';
+
 // TMDB API Key 轮询管理
 let currentKeyIndex = 0;
 
@@ -77,13 +80,15 @@ interface TMDBTVAiringTodayResponse {
  * @param page - 页码
  * @param region - 地区代码，默认 CN (中国)
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 即将上映的电影列表
  */
 export async function getTMDBUpcomingMovies(
   apiKey: string,
   page: number = 1,
   region: string = 'CN',
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; list: TMDBMovie[] }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -91,7 +96,8 @@ export async function getTMDBUpcomingMovies(
       return { code: 400, list: [] };
     }
 
-    const url = `https://api.themoviedb.org/3/movie/upcoming?api_key=${actualKey}&language=zh-CN&page=${page}&region=${region}`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/movie/upcoming?api_key=${actualKey}&language=zh-CN&page=${page}&region=${region}`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {
@@ -129,12 +135,14 @@ export async function getTMDBUpcomingMovies(
  * @param apiKey - TMDB API Key
  * @param page - 页码
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 正在播出的电视剧列表
  */
 export async function getTMDBUpcomingTVShows(
   apiKey: string,
   page: number = 1,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; list: TMDBTVShow[] }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -143,7 +151,8 @@ export async function getTMDBUpcomingTVShows(
     }
 
     // 使用 on_the_air 接口获取正在播出的电视剧
-    const url = `https://api.themoviedb.org/3/tv/on_the_air?api_key=${actualKey}&language=zh-CN&page=${page}`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/tv/on_the_air?api_key=${actualKey}&language=zh-CN&page=${page}`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {
@@ -180,11 +189,13 @@ export async function getTMDBUpcomingTVShows(
  * 获取即将上映/播出的内容（电影+电视剧）
  * @param apiKey - TMDB API Key
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 统一格式的即将上映/播出列表
  */
 export async function getTMDBUpcomingContent(
   apiKey: string,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; list: TMDBItem[] }> {
   try {
     if (!apiKey) {
@@ -193,8 +204,8 @@ export async function getTMDBUpcomingContent(
 
     // 并行获取电影和电视剧数据
     const [moviesResult, tvShowsResult] = await Promise.all([
-      getTMDBUpcomingMovies(apiKey, 1, 'CN', proxy),
-      getTMDBUpcomingTVShows(apiKey, 1, proxy),
+      getTMDBUpcomingMovies(apiKey, 1, 'CN', proxy, reverseProxyBaseUrl),
+      getTMDBUpcomingTVShows(apiKey, 1, proxy, reverseProxyBaseUrl),
     ]);
 
     // 检查是否有错误
@@ -262,13 +273,15 @@ export async function getTMDBUpcomingContent(
  * @param mediaType - 媒体类型 (movie 或 tv)
  * @param mediaId - 媒体ID
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns YouTube视频key（只返回预告片）
  */
 export async function getTMDBVideos(
   apiKey: string,
   mediaType: 'movie' | 'tv',
   mediaId: number,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<string | null> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -276,7 +289,8 @@ export async function getTMDBVideos(
       return null;
     }
 
-    const url = `https://api.themoviedb.org/3/${mediaType}/${mediaId}/videos?api_key=${actualKey}`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/${mediaType}/${mediaId}/videos?api_key=${actualKey}`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {
@@ -314,11 +328,13 @@ export async function getTMDBVideos(
  * 获取热门内容（电影+电视剧）
  * @param apiKey - TMDB API Key
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 热门内容列表
  */
 export async function getTMDBTrendingContent(
   apiKey: string,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; list: TMDBItem[] }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -327,7 +343,8 @@ export async function getTMDBTrendingContent(
     }
 
     // 获取本周热门内容（电影+电视剧）
-    const url = `https://api.themoviedb.org/3/trending/all/week?api_key=${actualKey}&language=zh-CN`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/trending/all/week?api_key=${actualKey}&language=zh-CN`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {
@@ -386,7 +403,10 @@ export function getTMDBImageUrl(
   size: string = 'w500'
 ): string {
   if (!path) return '';
-  return `https://image.tmdb.org/t/p/${size}${path}`;
+  const baseUrl = typeof window !== 'undefined'
+    ? localStorage.getItem('tmdbImageBaseUrl') || 'https://image.tmdb.org'
+    : 'https://image.tmdb.org';
+  return `${baseUrl}/t/p/${size}${path}`;
 }
 
 /**
@@ -442,12 +462,14 @@ export function getGenreNames(genreIds: number[] = [], limit: number = 2): strin
  * @param apiKey - TMDB API Key
  * @param query - 搜索关键词
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 搜索结果列表
  */
 export async function searchTMDBMulti(
   apiKey: string,
   query: string,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; results: any[] }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -455,7 +477,8 @@ export async function searchTMDBMulti(
       return { code: 400, results: [] };
     }
 
-    const url = `https://api.themoviedb.org/3/search/multi?api_key=${actualKey}&language=zh-CN&query=${encodeURIComponent(query)}&page=1`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/search/multi?api_key=${actualKey}&language=zh-CN&query=${encodeURIComponent(query)}&page=1`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {
@@ -492,12 +515,14 @@ export async function searchTMDBMulti(
  * @param apiKey - TMDB API Key
  * @param movieId - 电影ID
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 推荐列表
  */
 export async function getTMDBMovieRecommendations(
   apiKey: string,
   movieId: number,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; results: TMDBMovie[] }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -505,7 +530,8 @@ export async function getTMDBMovieRecommendations(
       return { code: 400, results: [] };
     }
 
-    const url = `https://api.themoviedb.org/3/movie/${movieId}/recommendations?api_key=${actualKey}&language=zh-CN&page=1`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/movie/${movieId}/recommendations?api_key=${actualKey}&language=zh-CN&page=1`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {
@@ -542,12 +568,14 @@ export async function getTMDBMovieRecommendations(
  * @param apiKey - TMDB API Key
  * @param tvId - 电视剧ID
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 推荐列表
  */
 export async function getTMDBTVRecommendations(
   apiKey: string,
   tvId: number,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; results: TMDBTVShow[] }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -555,7 +583,8 @@ export async function getTMDBTVRecommendations(
       return { code: 400, results: [] };
     }
 
-    const url = `https://api.themoviedb.org/3/tv/${tvId}/recommendations?api_key=${actualKey}&language=zh-CN&page=1`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/tv/${tvId}/recommendations?api_key=${actualKey}&language=zh-CN&page=1`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {
@@ -592,12 +621,14 @@ export async function getTMDBTVRecommendations(
  * @param apiKey - TMDB API Key
  * @param movieId - 电影ID
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 电影详情
  */
 export async function getTMDBMovieDetails(
   apiKey: string,
   movieId: number,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; details: any }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -605,7 +636,8 @@ export async function getTMDBMovieDetails(
       return { code: 400, details: null };
     }
 
-    const url = `https://api.themoviedb.org/3/movie/${movieId}?api_key=${actualKey}&language=zh-CN`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/movie/${movieId}?api_key=${actualKey}&language=zh-CN`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {
@@ -642,12 +674,14 @@ export async function getTMDBMovieDetails(
  * @param apiKey - TMDB API Key
  * @param tvId - 电视剧ID
  * @param proxy - 代理服务器地址
+ * @param reverseProxyBaseUrl - 反代 Base URL
  * @returns 电视剧详情
  */
 export async function getTMDBTVDetails(
   apiKey: string,
   tvId: number,
-  proxy?: string
+  proxy?: string,
+  reverseProxyBaseUrl?: string
 ): Promise<{ code: number; details: any }> {
   try {
     const actualKey = getNextApiKey(apiKey);
@@ -655,7 +689,8 @@ export async function getTMDBTVDetails(
       return { code: 400, details: null };
     }
 
-    const url = `https://api.themoviedb.org/3/tv/${tvId}?api_key=${actualKey}&language=zh-CN`;
+    const baseUrl = reverseProxyBaseUrl || DEFAULT_TMDB_BASE_URL;
+    const url = `${baseUrl}/3/tv/${tvId}?api_key=${actualKey}&language=zh-CN`;
     const fetchOptions: any = proxy
       ? {
           agent: new HttpsProxyAgent(proxy, {

@@ -249,7 +249,8 @@ async function fetchTMDBData(
     type?: 'movie' | 'tv';
   },
   tmdbApiKey?: string,
-  tmdbProxy?: string
+  tmdbProxy?: string,
+  tmdbReverseProxy?: string
 ): Promise<any> {
   try {
     const actualKey = getNextApiKey(tmdbApiKey || '');
@@ -263,9 +264,11 @@ async function fetchTMDBData(
       return null;
     }
 
+    // 使用反代代理或默认 Base URL
+    const baseUrl = tmdbReverseProxy || 'https://api.themoviedb.org';
     // 使用 TMDB API 获取详情
     // TMDB API: https://api.themoviedb.org/3/{type}/{id}
-    const url = `https://api.themoviedb.org/3/${params.type}/${params.id}?api_key=${actualKey}&language=zh-CN&append_to_response=keywords,similar`;
+    const url = `${baseUrl}/3/${params.type}/${params.id}?api_key=${actualKey}&language=zh-CN&append_to_response=keywords,similar`;
 
     console.log('📡 获取TMDB详情:', params.type, params.id);
 
@@ -517,6 +520,7 @@ export async function orchestrateDataSources(
     // TMDB 配置
     tmdbApiKey?: string;
     tmdbProxy?: string;
+    tmdbReverseProxy?: string;
     // 决策模型配置
     enableDecisionModel?: boolean;
     decisionProvider?: 'openai' | 'claude' | 'custom';
@@ -653,7 +657,8 @@ export async function orchestrateDataSources(
         type: context.type,
       },
       config?.tmdbApiKey,
-      config?.tmdbProxy
+      config?.tmdbProxy,
+      config?.tmdbReverseProxy
     );
     dataPromises.push(tmdbPromise);
   }

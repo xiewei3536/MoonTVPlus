@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     const config = await getConfig();
     const tmdbApiKey = config.SiteConfig?.TMDBApiKey;
     const tmdbProxy = config.SiteConfig?.TMDBProxy;
+    const tmdbReverseProxy = config.SiteConfig?.TMDBReverseProxy;
 
     if (!tmdbApiKey) {
       return NextResponse.json(
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 调用TMDB API获取数据
-    const result = await getTMDBUpcomingContent(tmdbApiKey, tmdbProxy);
+    const result = await getTMDBUpcomingContent(tmdbApiKey, tmdbProxy, tmdbReverseProxy);
 
     if (result.code !== 200) {
       return NextResponse.json(

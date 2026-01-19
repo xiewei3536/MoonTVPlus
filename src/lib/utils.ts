@@ -10,6 +10,7 @@ function getDoubanImageProxyConfig(): {
   | 'img3'
   | 'cmliussss-cdn-tencent'
   | 'cmliussss-cdn-ali'
+  | 'baidu'
   | 'custom';
   proxyUrl: string;
 } {
@@ -46,7 +47,19 @@ export function processImageUrl(originalUrl: string): string {
     return originalUrl;
   }
 
-  // 仅处理豆瓣图片代理
+  // 处理 TMDB 图片 URL 替换
+  if (originalUrl.includes('image.tmdb.org')) {
+    if (typeof window !== 'undefined') {
+      const tmdbImageBaseUrl = localStorage.getItem('tmdbImageBaseUrl') || 'https://image.tmdb.org';
+      // 只有当用户设置了不同的 baseUrl 时才进行替换
+      if (tmdbImageBaseUrl !== 'https://image.tmdb.org') {
+        return originalUrl.replace('https://image.tmdb.org', tmdbImageBaseUrl);
+      }
+    }
+    return originalUrl;
+  }
+
+  // 处理豆瓣图片代理
   if (!originalUrl.includes('doubanio.com')) {
     return originalUrl;
   }
@@ -67,6 +80,8 @@ export function processImageUrl(originalUrl: string): string {
         /img\d+\.doubanio\.com/g,
         'img.doubanio.cmliussss.com'
       );
+    case 'baidu':
+      return `https://image.baidu.com/search/down?url=${encodeURIComponent(originalUrl)}`;
     case 'custom':
       return `${proxyUrl}${encodeURIComponent(originalUrl)}`;
     case 'direct':
@@ -138,7 +153,10 @@ export function processVideoUrl(originalUrl: string): string {
  * @param m3u8Url m3u8播放列表的URL
  * @returns Promise<{quality: string, loadSpeed: string, pingTime: number, bitrate: string}> 视频质量等级和网络信息
  */
-export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
+export async function getVideoResolutionFromM3u8(
+  m3u8Url: string,
+  timeoutMs: number = 4000
+): Promise<{
   quality: string; // 如720p、1080p等
   loadSpeed: string; // 自动转换为KB/s或MB/s
   pingTime: number; // 网络延迟（毫秒）
@@ -167,12 +185,12 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       // 固定使用hls.js加载
       const hls = new Hls();
 
-      // 设置超时处理
+      // 设置超时处理 - 使用传入的超时时间
       const timeout = setTimeout(() => {
         hls.destroy();
         video.remove();
         reject(new Error('Timeout loading video metadata'));
-      }, 4000);
+      }, timeoutMs);
 
       video.onerror = () => {
         clearTimeout(timeout);

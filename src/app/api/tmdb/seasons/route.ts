@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
     const config = await getConfig();
     const tmdbApiKey = config.SiteConfig.TMDBApiKey;
     const tmdbProxy = config.SiteConfig.TMDBProxy;
+    const tmdbReverseProxy = config.SiteConfig.TMDBReverseProxy;
 
     if (!tmdbApiKey) {
       return NextResponse.json(
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const result = await getTVSeasons(tmdbApiKey, tvId, tmdbProxy);
+    const result = await getTVSeasons(tmdbApiKey, tvId, tmdbProxy, tmdbReverseProxy);
 
     if (result.code === 200 && result.seasons) {
       return NextResponse.json({

@@ -4,6 +4,8 @@ import { X, Calendar, Star, Clock, Tag, Users, Globe, Film } from 'lucide-react'
 import Image from 'next/image';
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { getTMDBImageUrl } from '@/lib/tmdb.client';
+import { processImageUrl } from '@/lib/utils';
 
 interface DetailPanelProps {
   isOpen: boolean;
@@ -48,6 +50,18 @@ interface DetailData {
   tagline?: string;
   seasons?: number;
   overview?: string;
+  tmdbId?: number;
+  mediaType?: 'movie' | 'tv';
+  seasonNumber?: number;
+}
+
+interface Episode {
+  id: number;
+  name: string;
+  episode_number: number;
+  still_path: string | null;
+  overview: string;
+  air_date: string;
 }
 
 const DetailPanel: React.FC<DetailPanelProps> = ({
@@ -71,6 +85,18 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
   const [detailData, setDetailData] = useState<DetailData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [seasonData, setSeasonData] = useState<{ seasons: any[]; episodes: Episode[] } | null>(null);
+  const [loadingSeasons, setLoadingSeasons] = useState(false);
+  const [expandedEpisodes, setExpandedEpisodes] = useState<Set<number>>(new Set());
+  const [selectedSeason, setSelectedSeason] = useState<number>(1);
+  const [seasonsLoaded, setSeasonsLoaded] = useState(false);
+
+  // 拖动滚动状态
+  const [isDragging, setIsDragging] = useState(false);
+  const [isMouseDown, setIsMouseDown] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const episodesScrollRef = React.useRef<HTMLDivElement>(null);
 
   // 确保组件在客户端挂载后才渲染 Portal
   useEffect(() => {
@@ -190,7 +216,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
               title: title,
               intro: cmsData.desc,
               episodesCount: cmsData.episodes?.length,
-              poster: poster,
+              poster: poster ? processImageUrl(poster) : poster,
             });
             setLoading(false);
             return;
@@ -208,7 +234,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
                   title: data.title || title,
                   intro: data.desc || '',
                   episodesCount: data.episodes?.length || cmsData.episodes?.length,
-                  poster: data.poster || poster,
+                  poster: data.poster ? processImageUrl(data.poster) : poster,
                   year: data.year,
                 });
                 setLoading(false);
@@ -234,7 +260,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
             title: data.name_cn || data.name,
             originalTitle: data.name,
             year: data.date ? data.date.substring(0, 4) : undefined,
-            poster: data.images?.large || poster,
+            poster: data.images?.large ? processImageUrl(data.images.large) : poster,
             rating: data.rating
               ? {
                   value: data.rating.score,
@@ -261,7 +287,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
             title: data.title,
             originalTitle: data.original_title,
             year: data.year,
-            poster: data.pic?.large || data.pic?.normal || poster,
+            poster: (data.pic?.large || data.pic?.normal) ? processImageUrl(data.pic?.large || data.pic?.normal) : poster,
             rating: data.rating
               ? {
                   value: data.rating.value,
@@ -355,7 +381,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
                   ? detailResult.release_date?.substring(0, 4)
                   : detailResult.first_air_date?.substring(0, 4),
               poster: detailResult.poster_path
-                ? `https://image.tmdb.org/t/p/w500${detailResult.poster_path}`
+                ? processImageUrl(getTMDBImageUrl(detailResult.poster_path, 'w500'))
                 : poster,
               rating: detailResult.vote_average
                 ? {
@@ -375,6 +401,9 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
               tagline: detailResult.tagline,
               seasons: detailResult.number_of_seasons,
               overview: detailResult.overview,
+              tmdbId: detailId,
+              mediaType: mediaType,
+              seasonNumber: extractedSeasonNumber,
             });
             return;
           }
@@ -393,6 +422,134 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
 
     fetchDetail();
   }, [isOpen, doubanId, bangumiId, isBangumi, tmdbId, title, type, seasonNumber, poster, cmsData, sourceId, source]);
+
+  // 异步获取季度和集数详情（仅TMDB）
+  useEffect(() => {
+    if (!detailData?.tmdbId || !detailData?.mediaType || detailData.mediaType !== 'tv' || seasonsLoaded) {
+      return;
+    }
+
+    const fetchSeasonData = async () => {
+      setLoadingSeasons(true);
+      try {
+        // 获取所有季度
+        const seasonsResponse = await fetch(`/api/tmdb/seasons?tvId=${detailData.tmdbId}`);
+        if (!seasonsResponse.ok) return;
+        const seasonsData = await seasonsResponse.json();
+
+        // 设置默认选中季度
+        const defaultSeason = detailData.seasonNumber || 1;
+        setSelectedSeason(defaultSeason);
+
+        // 获取默认季度的集数详情
+        const episodesResponse = await fetch(
+          `/api/tmdb/episodes?id=${detailData.tmdbId}&season=${defaultSeason}`
+        );
+        if (!episodesResponse.ok) return;
+        const episodesData = await episodesResponse.json();
+
+        setSeasonData({
+          seasons: seasonsData.seasons || [],
+          episodes: episodesData.episodes || [],
+        });
+        setSeasonsLoaded(true);
+      } catch (err) {
+        console.error('获取季度和集数详情失败:', err);
+      } finally {
+        setLoadingSeasons(false);
+      }
+    };
+
+    fetchSeasonData();
+  }, [detailData?.tmdbId, detailData?.mediaType, detailData?.seasonNumber, seasonsLoaded]);
+
+  // 切换季度时获取集数
+  const handleSeasonChange = async (seasonNumber: number) => {
+    if (!detailData?.tmdbId || selectedSeason === seasonNumber) return;
+
+    setSelectedSeason(seasonNumber);
+    setLoadingSeasons(true);
+    try {
+      const episodesResponse = await fetch(
+        `/api/tmdb/episodes?id=${detailData.tmdbId}&season=${seasonNumber}`
+      );
+      if (!episodesResponse.ok) return;
+      const episodesData = await episodesResponse.json();
+
+      // 从当前 seasonData 中查找季度信息
+      const season = seasonData?.seasons.find((s: any) => s.season_number === seasonNumber);
+
+      setSeasonData(prev => ({
+        seasons: prev?.seasons || [],
+        episodes: episodesData.episodes || [],
+      }));
+
+      // 更新季度元信息
+      setDetailData(prev => prev ? {
+        ...prev,
+        title: episodesData.name || season?.name || prev.title,
+        intro: episodesData.overview || season?.overview || prev.overview,
+        poster: season?.poster_path ? processImageUrl(getTMDBImageUrl(season.poster_path, 'w500')) : prev.poster,
+        releaseDate: episodesData.air_date || season?.air_date || prev.releaseDate,
+        year: episodesData.air_date?.substring(0, 4) || season?.air_date?.substring(0, 4) || prev.year,
+        episodesCount: episodesData.episodes?.length || season?.episode_count || prev.episodesCount,
+      } : null);
+
+      setExpandedEpisodes(new Set());
+    } catch (err) {
+      console.error('获取集数详情失败:', err);
+    } finally {
+      setLoadingSeasons(false);
+    }
+  };
+
+  // 拖动滚动处理函数
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!episodesScrollRef.current) return;
+    setIsMouseDown(true);
+    setStartX(e.pageX - episodesScrollRef.current.offsetLeft);
+    setScrollLeft(episodesScrollRef.current.scrollLeft);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isMouseDown || !episodesScrollRef.current) return;
+
+    const x = e.pageX - episodesScrollRef.current.offsetLeft;
+    const distance = Math.abs(x - startX);
+
+    // 只有移动超过5px才进入拖动模式
+    if (distance > 5 && !isDragging) {
+      setIsDragging(true);
+      episodesScrollRef.current.style.cursor = 'grabbing';
+      episodesScrollRef.current.style.userSelect = 'none';
+    }
+
+    if (isDragging) {
+      e.preventDefault();
+      const walk = (x - startX) * 2; // 滚动速度倍数
+      episodesScrollRef.current.scrollLeft = scrollLeft - walk;
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsMouseDown(false);
+    setIsDragging(false);
+    if (episodesScrollRef.current) {
+      episodesScrollRef.current.style.cursor = 'grab';
+      episodesScrollRef.current.style.userSelect = 'auto';
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (isMouseDown || isDragging) {
+      setIsMouseDown(false);
+      setIsDragging(false);
+      if (episodesScrollRef.current) {
+        episodesScrollRef.current.style.cursor = 'grab';
+        episodesScrollRef.current.style.userSelect = 'auto';
+      }
+    }
+  };
 
   if (!isVisible || !mounted) return null;
 
@@ -451,7 +608,7 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
               <div className="flex gap-6 mb-6">
                 {detailData.poster && (
                   <div className="relative w-32 h-48 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 flex-shrink-0">
-                    <Image src={detailData.poster} alt={detailData.title} fill className="object-cover" />
+                    <Image src={detailData.poster} alt={detailData.title} fill className="object-cover" draggable={false} />
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
@@ -600,6 +757,133 @@ const DetailPanel: React.FC<DetailPanelProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* 季度和集数信息（仅TMDB电视剧） */}
+              {detailData.mediaType === 'tv' && (
+                <div className="mt-6">
+                  {loadingSeasons && (
+                    <div className="flex items-center justify-center py-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
+                    </div>
+                  )}
+
+                  {!loadingSeasons && seasonData && (
+                    <>
+                      {/* 季度列表 */}
+                      {seasonData.seasons.length > 0 && (
+                        <div className="mb-6">
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                            季度
+                          </h4>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            {seasonData.seasons.map((season: any) => (
+                              <div
+                                key={season.id}
+                                onClick={() => handleSeasonChange(season.season_number)}
+                                className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
+                                  selectedSeason === season.season_number
+                                    ? 'bg-green-100 dark:bg-green-900/30 ring-2 ring-green-500'
+                                    : 'bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                              >
+                                {season.poster_path && (
+                                  <div className="relative w-12 h-16 rounded overflow-hidden bg-gray-200 dark:bg-gray-700 flex-shrink-0">
+                                    <Image
+                                      src={processImageUrl(getTMDBImageUrl(season.poster_path, 'w92'))}
+                                      alt={season.name}
+                                      fill
+                                      className="object-cover"
+                                      draggable={false}
+                                    />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                                    {season.name}
+                                  </p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {season.episode_count} 集
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 集数列表 */}
+                      {seasonData.episodes.length > 0 && (
+                        <div>
+                          <h4 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                            {seasonData.seasons.find((s: any) => s.season_number === selectedSeason)?.name || `第${selectedSeason}季`}
+                          </h4>
+                          <div
+                            ref={episodesScrollRef}
+                            onMouseDown={handleMouseDown}
+                            onMouseMove={handleMouseMove}
+                            onMouseUp={handleMouseUp}
+                            onMouseLeave={handleMouseLeave}
+                            className="overflow-x-auto -mx-6 px-6 cursor-grab active:cursor-grabbing"
+                            style={{
+                              scrollbarWidth: 'thin',
+                              scrollBehavior: isDragging ? 'auto' : 'smooth'
+                            }}
+                          >
+                            <div className="flex gap-3 pb-2">
+                              {seasonData.episodes.map((episode: Episode) => {
+                                const isExpanded = expandedEpisodes.has(episode.id);
+                                return (
+                                  <div
+                                    key={episode.id}
+                                    className="flex-shrink-0 w-64 p-3 rounded bg-gray-50 dark:bg-gray-800"
+                                    style={{ pointerEvents: isDragging ? 'none' : 'auto' }}
+                                  >
+                                    {episode.still_path && (
+                                      <div className="relative w-full h-36 rounded overflow-hidden bg-gray-200 dark:bg-gray-700 mb-2">
+                                        <Image
+                                          src={processImageUrl(getTMDBImageUrl(episode.still_path, 'w300'))}
+                                          alt={episode.name}
+                                          fill
+                                          className="object-cover"
+                                          draggable={false}
+                                        />
+                                      </div>
+                                    )}
+                                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+                                      第{episode.episode_number}集: {episode.name}
+                                    </p>
+                                    {episode.overview && (
+                                      <p
+                                        onClick={() => {
+                                          const newExpanded = new Set(expandedEpisodes);
+                                          if (isExpanded) {
+                                            newExpanded.delete(episode.id);
+                                          } else {
+                                            newExpanded.add(episode.id);
+                                          }
+                                          setExpandedEpisodes(newExpanded);
+                                        }}
+                                        className={`text-xs text-gray-600 dark:text-gray-400 cursor-pointer ${isExpanded ? '' : 'line-clamp-3'}`}
+                                      >
+                                        {episode.overview}
+                                      </p>
+                                    )}
+                                    {episode.air_date && (
+                                      <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                                        {episode.air_date}
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

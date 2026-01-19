@@ -226,6 +226,7 @@ async function getInitConfig(configFile: string, subConfig: {
       // TMDB配置
       TMDBApiKey: '',
       TMDBProxy: '',
+      TMDBReverseProxy: '',
       // 评论功能开关
       EnableComments: false,
     },

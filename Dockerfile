@@ -28,6 +28,9 @@ ENV DOCKER_ENV=true
 # 生成生产构建
 RUN pnpm run build
 
+# 使用 pnpm deploy 提取生产依赖到独立目录
+RUN pnpm deploy --filter=. --prod --legacy /tmp/prod-deps
+
 # ---- 第 3 阶段：生成运行时镜像 ----
 FROM node:24-alpine AS runner
 
@@ -55,8 +58,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/server.js ./server.js
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# 安装 Socket.IO 相关依赖（standalone 模式不会自动包含）
-RUN pnpm add socket.io@^4.8.1 socket.io-client@^4.8.1 --prod
+# 从构建器中复制生产依赖（包含 Socket.IO）
+COPY --from=builder --chown=nextjs:nodejs /tmp/prod-deps/node_modules ./node_modules
 
 # 切换到非特权用户
 USER nextjs

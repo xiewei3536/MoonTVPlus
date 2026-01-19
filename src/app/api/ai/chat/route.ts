@@ -240,6 +240,7 @@ export async function POST(request: NextRequest) {
         // TMDB 配置
         tmdbApiKey: adminConfig.SiteConfig.TMDBApiKey,
         tmdbProxy: adminConfig.SiteConfig.TMDBProxy,
+        tmdbReverseProxy: adminConfig.SiteConfig.TMDBReverseProxy,
         // 决策模型配置（固定使用自定义provider，复用主模型的API配置）
         enableDecisionModel: aiConfig.EnableDecisionModel,
         decisionProvider: 'custom',

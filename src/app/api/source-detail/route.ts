@@ -179,7 +179,8 @@ export async function GET(request: NextRequest) {
         client,
         metadataPath,
         config.SiteConfig.TMDBApiKey,
-        config.SiteConfig.TMDBProxy
+        config.SiteConfig.TMDBProxy,
+        config.SiteConfig.TMDBReverseProxy
       );
 
       // 获取集数列表（使用目录路径或点击的文件路径）
